@@ -36,6 +36,7 @@ export class StageView {
   private steelSlots = new Map<number, number[]>();
   private dummy = new THREE.Object3D();
   private disposables: Array<THREE.Material | THREE.BufferGeometry> = [];
+  private groundMat: THREE.MeshStandardMaterial | null = null;
   private time = 0;
 
   constructor() {
@@ -68,6 +69,7 @@ export class StageView {
     ground.receiveShadow = true;
     ground.name = 'ground';
     this.group.add(ground);
+    this.groundMat = groundMat;
     this.track(groundMat, ground.geometry);
 
     const apronMat = new THREE.MeshStandardMaterial({
@@ -665,6 +667,15 @@ export class StageView {
     }
     if (mask === 0) this.steelSlots.delete(z * GRID + x);
     this.steelMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** 0 = dry dust, 1 = rain-soaked and reflective. */
+  setWetness(value: number): void {
+    if (!this.groundMat) return;
+    const wet = THREE.MathUtils.clamp(value, 0, 1);
+    this.groundMat.roughness = 1 - wet * 0.58;
+    this.groundMat.envMapIntensity = 0.5 + wet * 2.2;
+    this.groundMat.color.setHSL(0.09, 0.06, 0.42 - wet * 0.12);
   }
 
   /** Rebuilds static terrain after a shovel power-up turns walls to steel. */

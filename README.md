@@ -6,13 +6,7 @@ external game assets are used.
 
 ![Battle City — Reforged gameplay](docs/preview.jpg)
 
-## Play in the browser
-
-**https://lhodhy.github.io/battle-city-reforged-public/**
-
-No install, no plugins — it is a single Vite build running on GitHub Pages.
-
-## Run it locally
+## Run it
 
 ```bash
 npm install
@@ -64,6 +58,8 @@ Back / Select to pause.
   with ACES tone mapping, bloom, colour grading, SMAA, animated water/ice, and forest canopies.
 - Physics-driven particles: debris, sparks, smoke, shockwave rings, scorch decals, muzzle
   flashes, camera shake, and screen flashes.
+- Weather per sector — drifting embers, slanted rain with lightning, or falling snow — each
+  with its own fog, light mood and ground wetness.
 - Synthesized WebAudio sound effects, engine loop, and original chiptune music with a mute
   toggle.
 

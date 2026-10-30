@@ -12,6 +12,25 @@ import { Effects } from './effects';
 import { BulletVisual, POWER_COLORS, PowerUpVisual, TankVisual } from './models';
 import { StageView } from './stageView';
 import { sparkTexture } from './textures';
+import { Weather, weatherForStage, type WeatherKind } from './weather';
+
+type Atmosphere = {
+  fog: number;
+  density: number;
+  exposure: number;
+  hemi: number;
+  key: number;
+  keyColor: number;
+  rim: number;
+  ambient: number;
+};
+
+const ATMOSPHERES: Record<WeatherKind, Atmosphere> = {
+  embers: { fog: 0x120c08, density: 0.019, exposure: 1.15, hemi: 0.8, key: 4.2, keyColor: 0xffe2b8, rim: 1.55, ambient: 0.5 },
+  rain: { fog: 0x080f16, density: 0.034, exposure: 1.08, hemi: 0.7, key: 2.7, keyColor: 0xd2e2f4, rim: 1.75, ambient: 0.45 },
+  snow: { fog: 0x101922, density: 0.03, exposure: 1.18, hemi: 1.05, key: 3.1, keyColor: 0xe4eefa, rim: 1.15, ambient: 0.72 },
+  clear: { fog: 0x090f16, density: 0.016, exposure: 1.14, hemi: 0.9, key: 4.1, keyColor: 0xffebcd, rim: 1.35, ambient: 0.5 },
+};
 
 const GRADE_SHADER = {
   uniforms: {
@@ -110,6 +129,7 @@ export class SceneView {
   readonly camera: THREE.PerspectiveCamera;
   readonly stage: StageView;
   readonly effects: Effects;
+  readonly weather: Weather;
   readonly composer: EffectComposer;
 
   private canvas: HTMLCanvasElement;
@@ -128,6 +148,14 @@ export class SceneView {
   private dust: THREE.Points;
   private lowQuality: boolean;
   private keyLight: THREE.DirectionalLight | null = null;
+  private lights: {
+    hemi: THREE.HemisphereLight;
+    key: THREE.DirectionalLight;
+    rim: THREE.DirectionalLight;
+    ambient: THREE.AmbientLight;
+  } | null = null;
+  private lightning = 0;
+  private baseKeyIntensity = 4.1;
   private cameraDir = new THREE.Vector3(0, 0.62, 0.785).normalize();
   private cameraTarget = new THREE.Vector3(FIELD / 2, 0, 6.8);
   private cameraDistance = 16.4;
@@ -160,6 +188,9 @@ export class SceneView {
 
     this.effects = new Effects(this.lowQuality);
     this.scene.add(this.effects.group);
+
+    this.weather = new Weather(this.lowQuality);
+    this.scene.add(this.weather.group);
 
     this.sky = this.createSky();
     this.scene.add(this.sky);
@@ -230,6 +261,8 @@ export class SceneView {
 
     const ambient = new THREE.AmbientLight(0x2b3a4a, 0.55);
     this.scene.add(ambient);
+
+    this.lights = { hemi, key, rim, ambient };
   }
 
   private createSky(): THREE.Mesh {
@@ -328,12 +361,14 @@ export class SceneView {
     this.gradePass.uniforms.uResolution.value.set(width, height);
     const pixelScale = height / (2 * Math.tan((this.camera.fov * Math.PI) / 360));
     this.effects.setPixelScale(pixelScale * this.renderer.getPixelRatio() * 0.55);
+    this.weather.setPixelScale(pixelScale * this.renderer.getPixelRatio());
     this.frameCamera();
   }
 
   showTitle(game: Game): void {
     this.titleMode = true;
     this.stage.build(game.terrain, 1, true);
+    this.applyAtmosphere(weatherForStage(1));
     this.clearVisuals();
     this.createDemoTanks();
   }
@@ -397,7 +432,28 @@ export class SceneView {
   buildStage(game: Game): void {
     this.stage.build(game.terrain, game.stage, game.baseAlive);
     this.clearVisuals();
+    this.applyAtmosphere(weatherForStage(game.stage));
     this.flash(0.08, 0xffc27a);
+  }
+
+  /** Weather, fog and light mood for the current sector. */
+  private applyAtmosphere(kind: WeatherKind): void {
+    const preset = ATMOSPHERES[kind];
+    const fog = this.scene.fog as THREE.FogExp2;
+    fog.color.setHex(preset.fog);
+    fog.density = preset.density;
+    this.renderer.toneMappingExposure = preset.exposure;
+    if (this.lights) {
+      this.lights.hemi.intensity = preset.hemi;
+      this.lights.key.intensity = preset.key;
+      this.lights.key.color.setHex(preset.keyColor);
+      this.lights.rim.intensity = preset.rim;
+      this.lights.ambient.intensity = preset.ambient;
+    }
+    this.baseKeyIntensity = preset.key;
+    this.weather.set(kind);
+    this.stage.setWetness(kind === 'rain' ? 1 : kind === 'snow' ? 0.35 : kind === 'embers' ? 0.12 : 0);
+    this.scene.background = new THREE.Color(preset.fog);
   }
 
   flash(amount: number, color = 0xffa050): void {
@@ -489,6 +545,18 @@ export class SceneView {
     this.time += dt;
     this.stage.update(dt, this.time);
     this.effects.update(dt);
+
+    const strike = this.weather.update(dt);
+    if (strike > 0) {
+      this.lightning = Math.max(this.lightning, strike * 0.55);
+      this.flash(0.16 * strike, 0xbcd8ff);
+    }
+    if (this.lightning > 0) {
+      this.lightning = Math.max(0, this.lightning - dt * 3.4);
+    }
+    if (this.lights) {
+      this.lights.key.intensity = this.baseKeyIntensity + this.lightning * 6;
+    }
 
     const flash = this.gradePass.uniforms.uFlash.value as number;
     this.gradePass.uniforms.uFlash.value = Math.max(0, flash - dt * 1.6);
@@ -644,6 +712,7 @@ export class SceneView {
     this.clearVisuals();
     this.stage.dispose();
     this.effects.dispose();
+    this.weather.dispose();
     this.composer.dispose();
     this.renderer.dispose();
   }
