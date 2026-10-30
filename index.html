@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a0b0d" />
+    <title>Battle City — Reforged</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230a0b0d'/><path d='M8 12h16v10H8z' fill='%23f0a63c'/><circle cx='16' cy='17' r='4' fill='%2315171c'/></svg>" />
+    <script type="module" crossorigin src="./assets/index-CNok0GAl.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DwjdADWv.css">
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene" aria-label="Battle City game field"></canvas>
+
+      <div id="hud" class="hud hidden">
+        <div class="hud-top">
+          <div class="hud-block">
+            <span class="label">STAGE</span>
+            <span class="value" id="stageNum">01</span>
+          </div>
+          <div class="hud-block centered">
+            <span class="label">ENEMY</span>
+            <div class="enemy-track" id="enemyTrack"></div>
+          </div>
+          <div class="hud-block right">
+            <div class="score-line"><span class="label">SCORE</span><span class="value" id="scoreNum">000000</span></div>
+            <div class="score-line dim"><span class="label">HI</span><span class="value" id="hiNum">000000</span></div>
+          </div>
+        </div>
+
+        <div class="hud-bottom">
+          <div class="player-card" id="p1Card">
+            <div class="player-tag">P1</div>
+            <div class="lives" id="p1Lives"></div>
+            <div class="stars" id="p1Stars"></div>
+          </div>
+          <div class="status-strip" id="statusStrip"></div>
+          <div class="player-card p2 hidden" id="p2Card">
+            <div class="player-tag alt">P2</div>
+            <div class="lives" id="p2Lives"></div>
+            <div class="stars" id="p2Stars"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="screens">
+        <section class="screen" id="titleScreen">
+          <div class="title-wrap">
+            <div class="eyebrow">1985 · REBUILT</div>
+            <h1 class="title">
+              <span class="title-line">BATTLE</span>
+              <span class="title-line accent">CITY</span>
+            </h1>
+            <div class="title-rule"></div>
+            <p class="tagline">Defend the eagle. Outgun the steel. Forty years of war, reforged.</p>
+            <div class="menu" id="titleMenu">
+              <button class="menu-item" data-mode="1"><span class="key">1</span> ONE PLAYER</button>
+              <button class="menu-item" data-mode="2"><span class="key">2</span> TWO PLAYERS</button>
+            </div>
+            <div class="controls">
+              <div class="control-col">
+                <span class="tag">P1</span>
+                <span><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> move</span>
+                <span><kbd>SPACE</kbd> fire</span>
+              </div>
+              <div class="control-col">
+                <span class="tag alt">P2</span>
+                <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
+                <span><kbd>F</kbd> fire</span>
+              </div>
+              <div class="control-col">
+                <span class="tag muted">SYS</span>
+                <span><kbd>P</kbd> pause</span>
+                <span><kbd>M</kbd> mute</span>
+              </div>
+            </div>
+            <div class="press-start" id="pressStart">PRESS <kbd>ENTER</kbd> OR CLICK TO DEPLOY</div>
+          </div>
+          <div class="title-fade"></div>
+        </section>
+
+        <section class="screen overlay hidden" id="pauseScreen">
+          <div class="panel">
+            <div class="eyebrow">SYSTEM</div>
+            <h2 class="panel-title">PAUSED</h2>
+            <p class="muted">The front holds. For now.</p>
+            <p class="hint">Press <kbd>P</kbd> to resume</p>
+          </div>
+        </section>
+
+        <section class="screen overlay hidden" id="clearScreen">
+          <div class="panel wide">
+            <div class="eyebrow">SECTOR SECURED</div>
+            <h2 class="panel-title">STAGE CLEAR</h2>
+            <div class="tally" id="clearTally"></div>
+            <div class="tally-total"><span>TOTAL</span><b id="clearScore">000000</b></div>
+            <p class="hint blink">ADVANCING<span class="dots">...</span></p>
+          </div>
+        </section>
+
+        <section class="screen overlay hidden" id="overScreen">
+          <div class="panel">
+            <div class="eyebrow danger">SIGNAL LOST</div>
+            <h2 class="panel-title danger">GAME OVER</h2>
+            <div class="final-score"><span>FINAL SCORE</span><b id="finalScore">000000</b></div>
+            <div class="final-best" id="finalBest"></div>
+            <p class="hint">Press <kbd>R</kbd> to redeploy</p>
+          </div>
+        </section>
+
+        <div class="stage-banner hidden" id="stageBanner">
+          <div class="banner-kicker">STAGE</div>
+          <div class="banner-number" id="bannerNum">01</div>
+          <div class="banner-rule"></div>
+          <div class="banner-sub" id="bannerSub">DEFEND THE EAGLE</div>
+        </div>
+
+        <div class="toast hidden" id="toast"></div>
+        <div class="rotate-hint hidden" id="rotateHint">Rotate your device — the battlefield is square.</div>
+        <div class="boot" id="boot"><span>LOADING BATTLEFIELD</span><i></i></div>
+      </div>
+    </div>
+  </body>
+</html>
