@@ -52,11 +52,18 @@ const GRADE_SHADER = {
       color.g = texture2D(tDiffuse, uv).g;
       color.b = texture2D(tDiffuse, uv - offset).b;
 
-      float vig = smoothstep(0.92, 0.18, d);
-      color *= mix(0.70, 1.0, vig);
+      float vig = smoothstep(0.98, 0.2, d);
+      color *= mix(0.74, 1.0, vig);
 
       float grain = hash21(uv * uResolution + uTime * 47.0);
-      color += (grain - 0.5) * 0.02;
+      color += (grain - 0.5) * 0.022;
+
+      // Gentle S-curve for punch, then split-tone: cool shadows, warm highlights.
+      color = mix(color, color * color * (3.0 - 2.0 * color), 0.22);
+      float lum = dot(color, vec3(0.2126, 0.7152, 0.0722));
+      vec3 shadowTint = vec3(0.86, 0.95, 1.08);
+      vec3 highTint = vec3(1.07, 1.0, 0.93);
+      color *= mix(shadowTint, highTint, smoothstep(0.04, 0.62, lum));
 
       color = pow(max(color, 0.0), vec3(0.985, 1.0, 1.02));
       color += uFlashColor * uFlash;
@@ -120,9 +127,10 @@ export class SceneView {
   private stars: THREE.Points;
   private dust: THREE.Points;
   private lowQuality: boolean;
-  private cameraDir = new THREE.Vector3(0, 0.68, 0.73).normalize();
-  private cameraTarget = new THREE.Vector3(FIELD / 2, 0, 7.1);
-  private cameraDistance = 18.0;
+  private keyLight: THREE.DirectionalLight | null = null;
+  private cameraDir = new THREE.Vector3(0, 0.62, 0.785).normalize();
+  private cameraTarget = new THREE.Vector3(FIELD / 2, 0, 6.8);
+  private cameraDistance = 16.4;
   private inspectTarget: { x: number; z: number; distance: number } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -138,14 +146,14 @@ export class SceneView {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.lowQuality ? 1.35 : 1.75));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.12;
+    this.renderer.toneMappingExposure = 1.14;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    this.scene.background = new THREE.Color(0x070a0e);
-    this.scene.fog = new THREE.FogExp2(0x0a1118, 0.015);
+    this.scene.background = new THREE.Color(0x05070a);
+    this.scene.fog = new THREE.FogExp2(0x0a1118, 0.021);
 
-    this.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 220);
+    this.camera = new THREE.PerspectiveCamera(36, 1, 0.1, 220);
 
     this.stage = new StageView();
     this.scene.add(this.stage.group);
@@ -167,9 +175,9 @@ export class SceneView {
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(1, 1),
-      this.lowQuality ? 0.3 : 0.4,
-      0.5,
-      0.9,
+      this.lowQuality ? 0.26 : 0.34,
+      0.62,
+      0.78,
     );
     this.composer.addPass(this.bloomPass);
     this.gradePass = new ShaderPass(GRADE_SHADER);
@@ -189,34 +197,38 @@ export class SceneView {
   }
 
   private setupLights(): void {
-    const hemi = new THREE.HemisphereLight(0xa8cdea, 0x2a2e33, 1.1);
+    const hemi = new THREE.HemisphereLight(0x9dc0e8, 0x1a1916, 0.85);
     this.scene.add(hemi);
 
-    const key = new THREE.DirectionalLight(0xfff1de, 2.2);
-    key.position.set(11, 16, 7);
-    key.target.position.set(6.5, 0, 6.5);
+    // Raking warm key: low enough to throw long shadows across the field.
+    const key = new THREE.DirectionalLight(0xffe6c4, 4.2);
+    key.position.set(13.5, 13.0, 4.2);
+    key.target.position.set(6.5, 0, 6.8);
     key.castShadow = true;
     key.shadow.mapSize.set(this.lowQuality ? 1024 : 2048, this.lowQuality ? 1024 : 2048);
-    key.shadow.camera.left = -10;
-    key.shadow.camera.right = 10;
-    key.shadow.camera.top = 10;
-    key.shadow.camera.bottom = -10;
+    key.shadow.camera.left = -9;
+    key.shadow.camera.right = 9;
+    key.shadow.camera.top = 9;
+    key.shadow.camera.bottom = -9;
     key.shadow.camera.near = 1;
-    key.shadow.camera.far = 40;
-    key.shadow.bias = -0.0004;
-    key.shadow.normalBias = 0.025;
+    key.shadow.camera.far = 45;
+    key.shadow.camera.updateProjectionMatrix();
+    key.shadow.bias = -0.0006;
+    key.shadow.normalBias = 0.028;
+    this.keyLight = key;
     this.scene.add(key, key.target);
 
-    const rim = new THREE.DirectionalLight(0x83b8ff, 1.1);
-    rim.position.set(-9, 9, -7);
+    // Cool counter-light from behind: separates silhouettes from the ground.
+    const rim = new THREE.DirectionalLight(0x86c8ff, 1.45);
+    rim.position.set(-10, 7.5, -8);
     rim.target.position.set(6.5, 0, 6.5);
     this.scene.add(rim, rim.target);
 
-    const fill = new THREE.DirectionalLight(0xa8c2da, 0.55);
-    fill.position.set(-4, 6, 16);
+    const fill = new THREE.DirectionalLight(0x93b4d4, 0.42);
+    fill.position.set(-5, 5, 15);
     this.scene.add(fill);
 
-    const ambient = new THREE.AmbientLight(0x35485c, 0.7);
+    const ambient = new THREE.AmbientLight(0x2b3a4a, 0.55);
     this.scene.add(ambient);
   }
 
@@ -291,7 +303,7 @@ export class SceneView {
 
   frameCamera(): void {
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
-    this.cameraDistance = 18.0 * THREE.MathUtils.clamp(1.5 / aspect, 1, 1.62);
+    this.cameraDistance = 17.6 * THREE.MathUtils.clamp(1.5 / aspect, 1, 1.66);
     const position = this.cameraTarget.clone().addScaledVector(this.cameraDir, this.cameraDistance);
     this.camera.position.copy(position);
     this.camera.lookAt(this.cameraTarget);

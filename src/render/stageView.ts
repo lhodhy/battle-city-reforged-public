@@ -5,12 +5,16 @@ import type { Terrain } from '../core/terrain';
 import { BaseVisual } from './models';
 import {
   asphaltTexture,
+  brickNormalTexture,
   brickTexture,
   concreteTexture,
   forestFloorTexture,
+  groundNormalTexture,
+  groundRoughnessTexture,
   groundTexture,
   iceTexture,
   metalTexture,
+  steelNormalTexture,
   waterNormalTexture,
 } from './textures';
 
@@ -50,9 +54,13 @@ export class StageView {
 
     const groundMat = new THREE.MeshStandardMaterial({
       map: groundTexture(),
-      color: 0xd6dbd6,
-      roughness: 0.94,
-      metalness: 0.02,
+      normalMap: groundNormalTexture(),
+      normalScale: new THREE.Vector2(0.55, 0.55),
+      roughnessMap: groundRoughnessTexture(),
+      color: 0xffffff,
+      roughness: 1,
+      metalness: 0.04,
+      envMapIntensity: 0.5,
     });
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(FIELD, FIELD), groundMat);
     ground.rotation.x = -Math.PI / 2;
@@ -78,6 +86,7 @@ export class StageView {
     this.buildBorder();
     this.buildTerrainCells(terrain, stage);
     this.buildBrickAndSteel(terrain);
+    this.buildSetDressing();
 
     this.base.group.visible = true;
     if (!baseAlive) this.base.setDestroyed();
@@ -94,10 +103,10 @@ export class StageView {
       metalness: 0.3,
     });
     const glowMat = new THREE.MeshStandardMaterial({
-      color: 0x14303d,
-      emissive: new THREE.Color(0x8bd4f2),
-      emissiveIntensity: 0.7,
-      roughness: 0.32,
+      color: 0x16323f,
+      emissive: new THREE.Color(0x7cc4e6),
+      emissiveIntensity: 0.55,
+      roughness: 0.34,
       metalness: 0.2,
     });
     this.track(wallMat, glowMat);
@@ -166,8 +175,217 @@ export class StageView {
     }
   }
 
-  private buildTerrainCells(terrain: Terrain, stage: number): void {
-    const iceMat = new THREE.MeshPhysicalMaterial({
+  /**
+   * Dresses the apron around the playfield so the arena reads as a place rather
+   * than a board floating in darkness: sandbags, crates, barrels, floodlights and
+   * a distant ruined skyline. Nothing here collides with gameplay.
+   */
+  private buildSetDressing(): void {
+    const rng = (i: number) => hash(i, 7, 13);
+
+    // --- Sandbag emplacements hugging the outer wall ---
+    const bagGeo = new RoundedBoxGeometry(0.42, 0.15, 0.26, 2, 0.05);
+    const bagMat = new THREE.MeshStandardMaterial({
+      color: 0x8a7a56,
+      roughness: 0.96,
+      metalness: 0.02,
+      map: concreteTexture(),
+    });
+    this.track(bagGeo, bagMat);
+    const bagCount = 150;
+    const bags = new THREE.InstancedMesh(bagGeo, bagMat, bagCount);
+    bags.castShadow = true;
+    bags.receiveShadow = true;
+    const dummy = new THREE.Object3D();
+    const color = new THREE.Color();
+    let bagIndex = 0;
+
+    const ring: Array<{ x: number; z: number; nx: number; nz: number; rot: number }> = [];
+    const inset = 1.15;
+    for (let i = 0; i < 8; i++) {
+      const t = (i + 0.5) / 8;
+      const along = -0.6 + t * (FIELD + 1.2);
+      ring.push({ x: -inset, z: along, nx: -1, nz: 0, rot: Math.PI / 2 });
+      ring.push({ x: FIELD + inset, z: along, nx: 1, nz: 0, rot: Math.PI / 2 });
+      ring.push({ x: along, z: -inset, nx: 0, nz: -1, rot: 0 });
+      ring.push({ x: along, z: FIELD + inset, nx: 0, nz: 1, rot: 0 });
+    }
+
+    for (const [i, spot] of ring.entries()) {
+      const rows = 3;
+      for (let row = 0; row < rows; row++) {
+        if (bagIndex >= bagCount) break;
+        const along = (rng(i * 9 + row) - 0.5) * 0.3;
+        const outward = row * 0.26 + (rng(i * 11 + row) - 0.5) * 0.07;
+        dummy.position.set(
+          spot.x + spot.nx * outward + (spot.nx !== 0 ? 0 : along),
+          0.08 + row * 0.135,
+          spot.z + spot.nz * outward + (spot.nz !== 0 ? 0 : along),
+        );
+        dummy.rotation.set(0, spot.rot + (rng(i * 13 + row) - 0.5) * 0.18, 0);
+        dummy.scale.set(1 + (rng(i * 17 + row) - 0.5) * 0.12, 1, 1);
+        dummy.updateMatrix();
+        bags.setMatrixAt(bagIndex, dummy.matrix);
+        const tint = 0.72 + rng(i * 19 + row) * 0.4;
+        color.setRGB(tint, tint * 0.95, tint * 0.8);
+        bags.setColorAt(bagIndex, color);
+        bagIndex++;
+      }
+    }
+    for (let i = bagIndex; i < bagCount; i++) this.hideInstance(bags, i);
+    bags.instanceMatrix.needsUpdate = true;
+    if (bags.instanceColor) bags.instanceColor.needsUpdate = true;
+    this.group.add(bags);
+
+    // --- Supply crates ---
+    const crateGeo = new RoundedBoxGeometry(0.52, 0.52, 0.52, 2, 0.03);
+    const crateMat = new THREE.MeshStandardMaterial({
+      color: 0x6a5334,
+      roughness: 0.88,
+      metalness: 0.03,
+      map: concreteTexture(),
+    });
+    this.track(crateGeo, crateMat);
+    const crateCount = 18;
+    const crates = new THREE.InstancedMesh(crateGeo, crateMat, crateCount);
+    crates.castShadow = true;
+    crates.receiveShadow = true;
+    for (let i = 0; i < crateCount; i++) {
+      const side = i % 4;
+      const t = rng(i * 3 + 2);
+      const out = 1.9 + rng(i * 3 + 3) * 2.6;
+      const along = -0.4 + t * (FIELD + 0.8);
+      const x = side === 0 ? -out : side === 1 ? FIELD + out : along;
+      const z = side === 2 ? -out : side === 3 ? FIELD + out : along;
+      const stack = i % 5 === 0 ? 1 : 0;
+      dummy.position.set(x, 0.26 + stack * 0.53, z);
+      dummy.rotation.set(0, rng(i * 7) * Math.PI * 0.5, 0);
+      dummy.scale.setScalar(0.85 + rng(i * 11) * 0.4);
+      dummy.updateMatrix();
+      crates.setMatrixAt(i, dummy.matrix);
+      const tint = 0.7 + rng(i * 13) * 0.45;
+      color.setRGB(tint, tint * 0.92, tint * 0.78);
+      crates.setColorAt(i, color);
+    }
+    crates.instanceMatrix.needsUpdate = true;
+    if (crates.instanceColor) crates.instanceColor.needsUpdate = true;
+    this.group.add(crates);
+
+    // --- Fuel barrels ---
+    const barrelGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.46, 12);
+    const barrelMat = new THREE.MeshStandardMaterial({
+      color: 0x4d5158,
+      metalness: 0.65,
+      roughness: 0.45,
+      map: metalTexture(),
+    });
+    this.track(barrelGeo, barrelMat);
+    const barrelCount = 12;
+    const barrels = new THREE.InstancedMesh(barrelGeo, barrelMat, barrelCount);
+    barrels.castShadow = true;
+    barrels.receiveShadow = true;
+    for (let i = 0; i < barrelCount; i++) {
+      const side = i % 4;
+      const t = rng(i * 5 + 31);
+      const out = 1.5 + rng(i * 5 + 32) * 2.2;
+      const along = -0.2 + t * (FIELD + 0.4);
+      const x = side === 0 ? -out : side === 1 ? FIELD + out : along;
+      const z = side === 2 ? -out : side === 3 ? FIELD + out : along;
+      dummy.position.set(x, 0.23, z);
+      dummy.rotation.set(0, rng(i * 9) * 6.28, 0);
+      dummy.scale.setScalar(0.9 + rng(i * 17) * 0.3);
+      dummy.updateMatrix();
+      barrels.setMatrixAt(i, dummy.matrix);
+      const hue = rng(i * 21);
+      color.setRGB(hue > 0.6 ? 0.55 : 0.3, hue > 0.6 ? 0.28 : 0.32, hue > 0.6 ? 0.16 : 0.3);
+      barrels.setColorAt(i, color);
+    }
+    barrels.instanceMatrix.needsUpdate = true;
+    if (barrels.instanceColor) barrels.instanceColor.needsUpdate = true;
+    this.group.add(barrels);
+
+    // --- Floodlight masts ---
+    const mastMat = new THREE.MeshStandardMaterial({ color: 0x2b2f34, metalness: 0.7, roughness: 0.5 });
+    const lampMat = new THREE.MeshStandardMaterial({
+      color: 0xfff0cf,
+      emissive: new THREE.Color(0xffd9a0),
+      emissiveIntensity: 2.6,
+      roughness: 0.3,
+    });
+    this.track(mastMat, lampMat);
+    const mastGeo = new THREE.CylinderGeometry(0.055, 0.085, 2.6, 8);
+    const armGeo = new THREE.BoxGeometry(0.44, 0.07, 0.07);
+    const lampGeo = new THREE.BoxGeometry(0.26, 0.1, 0.16);
+    this.track(armGeo, lampGeo);
+
+    for (const [x, z, dir] of [
+      [-2.6, -2.6, 1],
+      [FIELD + 2.6, -2.6, -1],
+      [-2.6, FIELD + 2.6, 1],
+      [FIELD + 2.6, FIELD + 2.6, -1],
+    ] as const) {
+      const mast = new THREE.Mesh(mastGeo, mastMat);
+      mast.position.set(x, 1.3, z);
+      mast.castShadow = true;
+      this.group.add(mast);
+
+      const arm = new THREE.Mesh(armGeo, mastMat);
+      arm.position.set(x + dir * 0.2, 2.5, z);
+      this.group.add(arm);
+
+      const lamp = new THREE.Mesh(lampGeo, lampMat);
+      lamp.position.set(x + dir * 0.38, 2.46, z);
+      this.group.add(lamp);
+
+      if (x === -2.6) {
+        const light = new THREE.PointLight(0xffd6a0, 7.5, 11, 2);
+        light.position.set(x + dir * 0.4, 2.4, z);
+        this.group.add(light);
+      }
+    }
+
+    // --- Distant ruined skyline for depth ---
+    const surroundGeo = new THREE.PlaneGeometry(150, 150);
+    const surroundMat = new THREE.MeshStandardMaterial({
+      color: 0x0b0e12,
+      roughness: 0.98,
+      metalness: 0,
+    });
+    this.track(surroundGeo, surroundMat);
+    const surround = new THREE.Mesh(surroundGeo, surroundMat);
+    surround.rotation.x = -Math.PI / 2;
+    surround.position.set(FIELD / 2, -0.09, FIELD / 2);
+    surround.receiveShadow = true;
+    this.group.add(surround);
+
+    const ruinGeo = new THREE.BoxGeometry(1, 1, 1);
+    const ruinMat = new THREE.MeshStandardMaterial({
+      color: 0x101720,
+      roughness: 0.95,
+      metalness: 0.05,
+    });
+    this.track(ruinGeo, ruinMat);
+    const ruinCount = 44;
+    const ruins = new THREE.InstancedMesh(ruinGeo, ruinMat, ruinCount);
+    for (let i = 0; i < ruinCount; i++) {
+      const angle = (i / ruinCount) * Math.PI * 2 + rng(i * 3) * 0.12;
+      const radius = 26 + rng(i * 3 + 1) * 18;
+      const height = 2.2 + rng(i * 3 + 2) * 7;
+      dummy.position.set(
+        FIELD / 2 + Math.cos(angle) * radius,
+        height / 2 - 0.7,
+        FIELD / 2 + Math.sin(angle) * radius,
+      );
+      dummy.rotation.set(0, rng(i * 5) * 3.14, 0);
+      dummy.scale.set(1.6 + rng(i * 7) * 2.8, height, 1.6 + rng(i * 11) * 2.8);
+      dummy.updateMatrix();
+      ruins.setMatrixAt(i, dummy.matrix);
+    }
+    ruins.instanceMatrix.needsUpdate = true;
+    this.group.add(ruins);
+  }
+
+  private buildTerrainCells(terrain: Terrain, stage: number): void {    const iceMat = new THREE.MeshPhysicalMaterial({
       map: iceTexture(),
       color: 0xffffff,
       roughness: 0.06,
@@ -316,12 +534,14 @@ export class StageView {
   }
 
   private buildBrickAndSteel(terrain: Terrain): void {
-    const brickGeo = new RoundedBoxGeometry(0.47, 0.62, 0.47, 2, 0.035);
+    const brickGeo = new RoundedBoxGeometry(0.47, 0.52, 0.47, 2, 0.035);
     const brickMat = new THREE.MeshStandardMaterial({
       map: brickTexture(),
-      roughness: 0.88,
+      normalMap: brickNormalTexture(),
+      normalScale: new THREE.Vector2(0.7, 0.7),
+      roughness: 0.9,
       metalness: 0.04,
-      envMapIntensity: 0.55,
+      envMapIntensity: 0.5,
     });
     this.track(brickMat, brickGeo);
     const maxBricks = GRID * GRID * 4;
@@ -330,13 +550,15 @@ export class StageView {
     bricks.receiveShadow = true;
     bricks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
-    const steelGeo = new RoundedBoxGeometry(0.475, 0.56, 0.475, 3, 0.045);
+    const steelGeo = new RoundedBoxGeometry(0.475, 0.48, 0.475, 3, 0.045);
     const steelMat = new THREE.MeshStandardMaterial({
       map: metalTexture(),
-      color: 0xd0d7dd,
-      metalness: 0.6,
-      roughness: 0.38,
-      envMapIntensity: 2.1,
+      normalMap: steelNormalTexture(),
+      normalScale: new THREE.Vector2(0.85, 0.85),
+      color: 0xb9c2ca,
+      metalness: 0.72,
+      roughness: 0.34,
+      envMapIntensity: 1.9,
     });
     this.track(steelMat, steelGeo);
     const steels = new THREE.InstancedMesh(steelGeo, steelMat, maxBricks);
@@ -358,9 +580,10 @@ export class StageView {
             const idx = usedBricks++;
             slots.push(idx);
             if (cell.mask & (1 << q)) {
-              this.setQuadMatrix(bricks, idx, x, z, q, 0.31);
-              const tint = 0.82 + ((x * 7 + z * 3 + q) % 7) * 0.045;
-              color.setRGB(tint, tint * 0.94, tint * 0.9);
+              const spin = ((x * 31 + z * 17 + q * 7) % 2) * Math.PI;
+              this.setQuadMatrix(bricks, idx, x, z, q, 0.31, spin);
+              const tint = 0.74 + hash(x * 7 + q, z * 3, 5) * 0.34;
+              color.setRGB(tint, tint * (0.93 + hash(x, z + q, 2) * 0.06), tint * 0.88);
               bricks.setColorAt(idx, color);
             } else {
               this.hideInstance(bricks, idx);
@@ -402,10 +625,11 @@ export class StageView {
     cellZ: number,
     quad: number,
     y: number,
+    rotationY = 0,
   ): void {
     const offset = QUAD_OFFSETS[quad];
     this.dummy.position.set(cellX + 0.5 + offset.x, y, cellZ + 0.5 + offset.z);
-    this.dummy.rotation.set(0, 0, 0);
+    this.dummy.rotation.set(0, rotationY, 0);
     this.dummy.scale.setScalar(1);
     this.dummy.updateMatrix();
     mesh.setMatrixAt(index, this.dummy.matrix);

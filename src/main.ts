@@ -1,4 +1,5 @@
 import './style.css';
+import * as THREE from 'three';
 import { Game } from './core/game';
 import { AudioEngine } from './audio/audio';
 import { InputManager } from './input/input';
@@ -217,6 +218,7 @@ requestAnimationFrame(frame);
 
 // Debug/automation hook: lets tooling jump straight into a stage.
 (window as any).__battleCity = {
+  THREE,
   game,
   view,
   audio,

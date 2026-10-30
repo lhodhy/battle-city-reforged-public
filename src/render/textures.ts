@@ -35,6 +35,45 @@ function noise(ctx: Ctx, size: number, amount: number, alpha: number, light = tr
   }
 }
 
+/** Deterministic hash so texture detail is stable between reloads. */
+function hash2(x: number, y: number): number {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+/** Converts a greyscale height canvas into a tangent-space normal map. */
+function normalFromHeight(heightCanvas: HTMLCanvasElement, strength: number): THREE.DataTexture {
+  const size = heightCanvas.width;
+  const ctx = heightCanvas.getContext('2d')!;
+  const src = ctx.getImageData(0, 0, size, size).data;
+  const out = new Uint8Array(size * size * 4);
+  const h = (x: number, y: number): number => {
+    const xi = (x + size) % size;
+    const yi = (y + size) % size;
+    return src[(yi * size + xi) * 4] / 255;
+  };
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (h(x + 1, y) - h(x - 1, y)) * strength;
+      const dy = (h(x, y + 1) - h(x, y - 1)) * strength;
+      const nx = -dx;
+      const ny = -dy;
+      const len = Math.hypot(nx, ny, 1);
+      const i = (y * size + x) * 4;
+      out[i] = Math.round(((nx / len) * 0.5 + 0.5) * 255);
+      out[i + 1] = Math.round(((ny / len) * 0.5 + 0.5) * 255);
+      out[i + 2] = Math.round(((1 / len) * 0.5 + 0.5) * 255);
+      out[i + 3] = 255;
+    }
+  }
+  const texture = new THREE.DataTexture(out, size, size, THREE.RGBAFormat);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = anisotropy;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 const cache = new Map<string, THREE.Texture>();
 
 function cached<T extends THREE.Texture>(key: string, make: () => T): T {
@@ -150,23 +189,63 @@ export function metalTexture(): THREE.CanvasTexture {
 
 export function groundTexture(): THREE.CanvasTexture {
   return cached('ground', () => {
-    const size = 1024;
+    const size = 2048;
     const { canvas, ctx } = makeCanvas(size);
-    ctx.fillStyle = '#565b57';
+    // Packed, oil-stained earth rather than a flat green table.
+    ctx.fillStyle = '#48453c';
     ctx.fillRect(0, 0, size, size);
 
-    for (let i = 0; i < 2400; i++) {
+    // Broad patches of mud, dust, ash and worn concrete.
+    for (let i = 0; i < 110; i++) {
+      const x = hash2(i, 1) * size;
+      const y = hash2(i, 2) * size;
+      const r = 60 + hash2(i, 3) * 300;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      const kind = hash2(i, 4);
+      if (kind > 0.62) g.addColorStop(0, 'rgba(104,92,68,0.30)');
+      else if (kind > 0.3) g.addColorStop(0, 'rgba(24,24,22,0.34)');
+      else g.addColorStop(0, 'rgba(96,98,94,0.16)');
+      g.addColorStop(0.7, 'rgba(0,0,0,0.05)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+
+    // Gravel and grit.
+    for (let i = 0; i < 24000; i++) {
       const tone = Math.random();
-      ctx.fillStyle = `rgba(${tone > 0.5 ? 28 : 205},${tone > 0.5 ? 30 : 212},${tone > 0.5 ? 27 : 200},${Math.random() * 0.16})`;
-      const s = Math.random() * 5 + 1;
+      const v = 40 + tone * 120;
+      ctx.fillStyle = `rgba(${v},${v - 2},${v - 8},${Math.random() * 0.3})`;
+      const s = Math.random() * 3.4 + 0.6;
       ctx.fillRect(Math.random() * size, Math.random() * size, s, s);
     }
 
-    // Block seams every 1/13th.
+    // Tyre ruts: two worn bands crossing the field.
+    ctx.save();
+    for (const [sx, ex, sy, ey, width] of [
+      [size * 0.18, size * 0.92, size * 0.34, size * 0.78, 30],
+      [size * 0.72, size * 0.28, size * 0.16, size * 0.9, 22],
+    ] as const) {
+      for (const offset of [-width * 0.5, width * 0.5]) {
+        const grad = ctx.createLinearGradient(0, sy + offset, 0, sy + offset + width * 0.5);
+        grad.addColorStop(0, 'rgba(18,17,15,0)');
+        grad.addColorStop(0.5, 'rgba(18,17,15,0.22)');
+        grad.addColorStop(1, 'rgba(18,17,15,0)');
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = width * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy + offset);
+        ctx.lineTo(ex, ey + offset);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    // Tile seams, soft and slightly broken rather than graph-paper.
     const step = size / 13;
     for (let i = 0; i <= 13; i++) {
-      ctx.strokeStyle = 'rgba(28,24,19,0.45)';
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(20,18,15,0.30)';
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(i * step, 0);
       ctx.lineTo(i * step, size);
@@ -175,7 +254,8 @@ export function groundTexture(): THREE.CanvasTexture {
       ctx.moveTo(0, i * step);
       ctx.lineTo(size, i * step);
       ctx.stroke();
-      ctx.strokeStyle = 'rgba(220,205,180,0.06)';
+
+      ctx.strokeStyle = 'rgba(190,182,160,0.05)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(i * step + 2, 0);
@@ -183,36 +263,169 @@ export function groundTexture(): THREE.CanvasTexture {
       ctx.stroke();
     }
 
-    // Weathered patches.
+    // Cracks and scattered debris.
     for (let i = 0; i < 34; i++) {
-      const x = Math.random() * size;
-      const y = Math.random() * size;
-      const r = 20 + Math.random() * 90;
-      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-      const dark = Math.random() > 0.45;
-      grad.addColorStop(0, dark ? 'rgba(30,26,20,0.18)' : 'rgba(214,198,164,0.11)');
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grad;
+      let x = hash2(i, 9) * size;
+      let y = hash2(i, 10) * size;
+      ctx.strokeStyle = `rgba(16,14,12,${0.25 + hash2(i, 11) * 0.3})`;
+      ctx.lineWidth = 0.8 + hash2(i, 12) * 1.4;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      for (let s = 0; s < 8; s++) {
+        x += (hash2(i, 20 + s) - 0.5) * 90;
+        y += (hash2(i, 30 + s) - 0.5) * 90;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // Scorch marks from earlier battles.
+    for (let i = 0; i < 16; i++) {
+      const x = hash2(i, 40) * size;
+      const y = hash2(i, 41) * size;
+      const r = 26 + hash2(i, 42) * 70;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, 'rgba(8,7,6,0.5)');
+      g.addColorStop(0.55, 'rgba(12,10,9,0.24)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
       ctx.fillRect(x - r, y - r, r * 2, r * 2);
     }
 
-    // Hairline cracks.
-    ctx.strokeStyle = 'rgba(25,21,17,0.35)';
-    for (let i = 0; i < 22; i++) {
-      let x = Math.random() * size;
-      let y = Math.random() * size;
+    noise(ctx, size, 5000, 0.1, false);
+    noise(ctx, size, 2600, 0.08, true);
+    return finish(canvas, true);
+  });
+}
+
+export function groundNormalTexture(): THREE.DataTexture {
+  return cached('groundNormal', () => {
+    const size = 1024;
+    const { canvas, ctx } = makeCanvas(size);
+    ctx.fillStyle = '#808080';
+    ctx.fillRect(0, 0, size, size);
+
+    // Granular relief.
+    for (let i = 0; i < 16000; i++) {
+      const v = Math.floor(90 + Math.random() * 90);
+      ctx.fillStyle = `rgb(${v},${v},${v})`;
+      ctx.fillRect(Math.random() * size, Math.random() * size, Math.random() * 3 + 1, Math.random() * 3 + 1);
+    }
+    // Seams sit lower than the tiles.
+    const step = size / 13;
+    ctx.lineWidth = 3;
+    for (let i = 0; i <= 13; i++) {
+      ctx.strokeStyle = 'rgba(70,70,70,0.9)';
       ctx.beginPath();
-      ctx.moveTo(x, y);
-      for (let s = 0; s < 7; s++) {
-        x += Math.random() * 30 - 15;
-        y += Math.random() * 30 - 15;
-        ctx.lineTo(x, y);
-      }
-      ctx.lineWidth = Math.random() * 1.4;
+      ctx.moveTo(i * step, 0);
+      ctx.lineTo(i * step, size);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, i * step);
+      ctx.lineTo(size, i * step);
       ctx.stroke();
     }
-    noise(ctx, size, 2400, 0.1, false);
-    return finish(canvas, true);
+    return normalFromHeight(canvas, 2.4);
+  });
+}
+
+export function groundRoughnessTexture(): THREE.CanvasTexture {
+  return cached('groundRough', () => {
+    const size = 1024;
+    const { canvas, ctx } = makeCanvas(size);
+    ctx.fillStyle = '#e8e8e8';
+    ctx.fillRect(0, 0, size, size);
+    // Oil and water sheen: darker = smoother.
+    for (let i = 0; i < 26; i++) {
+      const x = hash2(i, 60) * size;
+      const y = hash2(i, 61) * size;
+      const r = 18 + hash2(i, 62) * 60;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, 'rgba(40,40,40,0.85)');
+      g.addColorStop(0.6, 'rgba(120,120,120,0.35)');
+      g.addColorStop(1, 'rgba(200,200,200,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    noise(ctx, size, 3000, 0.25, true);
+    return finish(canvas, false);
+  });
+}
+
+export function brickNormalTexture(): THREE.DataTexture {
+  return cached('brickNormal', () => {
+    const size = 512;
+    const { canvas, ctx } = makeCanvas(size);
+    ctx.fillStyle = '#4a4a4a';
+    ctx.fillRect(0, 0, size, size);
+
+    const rows = 6;
+    const rowH = size / rows;
+    const brickW = size / 3;
+    for (let row = 0; row < rows; row++) {
+      const offset = row % 2 === 0 ? 0 : -brickW / 2;
+      for (let col = -1; col < 4; col++) {
+        const x = col * brickW + offset + 3;
+        const y = row * rowH + 3;
+        const w = brickW - 6;
+        const h = rowH - 6;
+        const grad = ctx.createLinearGradient(x, y, x, y + h);
+        grad.addColorStop(0, '#c8c8c8');
+        grad.addColorStop(0.5, '#dcdcdc');
+        grad.addColorStop(1, '#b0b0b0');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, 4);
+        ctx.fill();
+        // Pitted brick surface.
+        for (let n = 0; n < 40; n++) {
+          const v = Math.floor(150 + Math.random() * 70);
+          ctx.fillStyle = `rgb(${v},${v},${v})`;
+          ctx.fillRect(x + Math.random() * w, y + Math.random() * h, 2, 2);
+        }
+      }
+    }
+    return normalFromHeight(canvas, 2.2);
+  });
+}
+
+export function steelNormalTexture(): THREE.DataTexture {
+  return cached('steelNormal', () => {
+    const size = 512;
+    const { canvas, ctx } = makeCanvas(size);
+    ctx.fillStyle = '#8a8a8a';
+    ctx.fillRect(0, 0, size, size);
+
+    // Recessed panel with raised rim.
+    ctx.strokeStyle = '#d8d8d8';
+    ctx.lineWidth = 10;
+    ctx.strokeRect(26, 26, size - 52, size - 52);
+    ctx.strokeStyle = '#5a5a5a';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(40, 40, size - 80, size - 80);
+    ctx.fillStyle = '#9c9c9c';
+    ctx.fillRect(40, 40, size - 80, size - 80);
+
+    // Rivets.
+    for (let i = 0; i < 6; i++) {
+      for (const [x, y] of [
+        [58 + i * 79, 58],
+        [58 + i * 79, size - 58],
+        [58, 58 + i * 79],
+        [size - 58, 58 + i * 79],
+      ]) {
+        const g = ctx.createRadialGradient(x - 1, y - 1, 1, x, y, 9);
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(0.55, '#c0c0c0');
+        g.addColorStop(1, '#6a6a6a');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, 9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    noise(ctx, size, 1200, 0.15, true);
+    return normalFromHeight(canvas, 2.0);
   });
 }
 

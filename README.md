@@ -58,8 +58,10 @@ Back / Select to pause.
   procedural stages with scaling difficulty).
 - Power-ups: star, helmet, clock, shovel, grenade, and extra tank.
 - Single-player and two-player local co-op, shared stage flow, lives, respawns, and scoring.
-- PBR materials, procedural textures, dynamic lights, shadows, ACES tone mapping, bloom,
-  color grading, SMAA, animated water/ice, and forest canopies.
+- PBR materials with procedural colour, normal and roughness maps; the ground, brick and
+  steel all respond to a raking key light with real shadow casting.
+- Night-time arena framed by sandbags, crates, barrels, floodlights and a ruined skyline,
+  with ACES tone mapping, bloom, colour grading, SMAA, animated water/ice, and forest canopies.
 - Physics-driven particles: debris, sparks, smoke, shockwave rings, scorch decals, muzzle
   flashes, camera shake, and screen flashes.
 - Synthesized WebAudio sound effects, engine loop, and original chiptune music with a mute

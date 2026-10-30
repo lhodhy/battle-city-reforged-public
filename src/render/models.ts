@@ -65,10 +65,10 @@ function geometries(): GeoPool {
 }
 
 const KIND_COLORS: Record<EnemyKind, number> = {
-  basic: 0x7c838a,
-  fast: 0xbfa878,
-  power: 0xa63a2c,
-  armor: 0x5e7a41,
+  basic: 0x9aa3ac,
+  fast: 0xd6bd85,
+  power: 0xc9482f,
+  armor: 0x7d9a55,
 };
 
 function tankColor(kind: string, team: string, playerIndex: number): number {
@@ -735,57 +735,36 @@ export class BaseVisual {
 
     this.eagle = new THREE.Group();
     this.eagle.position.y = 0.635;
-    this.eagle.scale.setScalar(1.0);
+    this.eagle.scale.setScalar(0.86);
 
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.2, 18, 14), gold);
-    body.scale.set(0.4, 0.3, 1.15);
-    body.position.set(0, 0.035, -0.02);
-    this.eagle.add(body);
-
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.085, 14, 10), gold);
-    head.position.set(0, 0.14, -0.3);
-    this.eagle.add(head);
-
-    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.13, 8), goldDark);
-    beak.rotation.x = -Math.PI / 2;
-    beak.position.set(0, 0.125, -0.4);
-    this.eagle.add(beak);
-
-    const crest = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.07, 6), gold);
-    crest.position.set(0, 0.21, -0.28);
-    this.eagle.add(crest);
-
-    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x160f05, metalness: 0.4, roughness: 0.3 });
-    for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 6), eyeMat);
-      eye.position.set(side * 0.045, 0.16, -0.345);
-      this.eagle.add(eye);
-    }
-
-    // Swept wings with notched trailing feathers, held over a dark bronze medallion.
+    // A heraldic relief meant to be read from above: wings spread flat on the
+    // medallion, head toward the top of the screen.
     const wingPoints: Array<[number, number]> = [
-      [0.02, 0.2],
-      [0.22, 0.22],
-      [0.45, 0.18],
-      [0.66, 0.08],
-      [0.82, -0.02],
-      [0.78, -0.1],
-      [0.64, -0.06],
-      [0.6, -0.14],
-      [0.5, -0.1],
-      [0.45, -0.18],
-      [0.35, -0.14],
-      [0.28, -0.22],
-      [0.18, -0.18],
-      [0.1, -0.23],
-      [0.02, -0.18],
+      [0.05, 0.24],
+      [0.3, 0.23],
+      [0.55, 0.21],
+      [0.78, 0.17],
+      [0.94, 0.1],
+      [0.97, 0.03],
+      [0.9, -0.01],
+      [0.8, -0.03],
+      [0.76, 0.05],
+      [0.66, 0.01],
+      [0.62, 0.09],
+      [0.52, 0.04],
+      [0.48, 0.12],
+      [0.36, 0.07],
+      [0.3, 0.15],
+      [0.18, 0.11],
+      [0.1, 0.17],
+      [0.05, 0.15],
     ];
     const wingShape = new THREE.Shape();
     wingShape.moveTo(wingPoints[0][0], wingPoints[0][1]);
     for (let i = 1; i < wingPoints.length; i++) wingShape.lineTo(wingPoints[i][0], wingPoints[i][1]);
     wingShape.closePath();
     const wingGeo = new THREE.ExtrudeGeometry(wingShape, {
-      depth: 0.05,
+      depth: 0.045,
       bevelEnabled: true,
       bevelSize: 0.008,
       bevelThickness: 0.008,
@@ -793,33 +772,65 @@ export class BaseVisual {
       curveSegments: 1,
     });
     wingGeo.rotateX(-Math.PI / 2);
-    const wingInnerGeo = wingGeo.clone();
-    wingInnerGeo.scale(0.62, 0.5, 0.72);
-    wingInnerGeo.translate(0.02, 0.03, 0.02);
+
+    // Feather rows: a smaller offset copy reads as layered plumage.
+    const innerGeo = wingGeo.clone();
+    innerGeo.scale(0.62, 1, 0.6);
+    innerGeo.translate(0.02, 0.026, 0.06);
 
     for (const side of [-1, 1]) {
-      const wingGroup = new THREE.Group();
-      wingGroup.rotation.z = side * 0.14;
       const wing = new THREE.Mesh(wingGeo, goldWing);
       wing.scale.x = side;
-      wingGroup.add(wing);
+      this.eagle.add(wing);
 
-      const inner = new THREE.Mesh(wingInnerGeo, goldDark);
+      const inner = new THREE.Mesh(innerGeo, goldDark);
       inner.scale.x = side;
-      wingGroup.add(inner);
-      this.eagle.add(wingGroup);
+      this.eagle.add(inner);
     }
 
-    for (let i = -1; i <= 1; i++) {
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.16, 18, 14), gold);
+    body.scale.set(0.52, 0.32, 1.5);
+    body.position.set(0, 0.035, 0.0);
+    this.eagle.add(body);
+
+    const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.13, 14, 10), goldWing);
+    shoulder.scale.set(0.9, 0.4, 0.8);
+    shoulder.position.set(0, 0.05, -0.06);
+    this.eagle.add(shoulder);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.082, 14, 10), gold);
+    head.scale.set(0.9, 0.8, 1.05);
+    head.position.set(0, 0.06, -0.3);
+    this.eagle.add(head);
+
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.14, 8), goldDark);
+    beak.rotation.x = -Math.PI / 2;
+    beak.position.set(0, 0.05, -0.4);
+    this.eagle.add(beak);
+
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x160f05, metalness: 0.4, roughness: 0.3 });
+    for (const side of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), eyeMat);
+      eye.position.set(side * 0.042, 0.085, -0.33);
+      this.eagle.add(eye);
+    }
+
+    // Fanned tail feathers.
+    for (let i = -2; i <= 2; i++) {
       const feather = new THREE.Mesh(
-        new THREE.BoxGeometry(0.08, 0.026, 0.3),
-        i === 0 ? gold : goldDark,
+        new THREE.BoxGeometry(0.075, 0.022, 0.3 - Math.abs(i) * 0.04),
+        i % 2 === 0 ? goldDark : gold,
       );
-      feather.position.set(i * 0.07, -0.006, 0.26 + Math.abs(i) * 0.02);
-      feather.rotation.y = i * 0.22;
-      feather.castShadow = true;
+      feather.position.set(i * 0.062, 0.012, 0.29 + Math.abs(i) * 0.015);
+      feather.rotation.y = i * 0.17;
       this.eagle.add(feather);
     }
+
+    // Dark rim around the medallion frames the emblem.
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.575, 0.018, 8, 48), goldDark);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = 0.02;
+    this.eagle.add(rim);
 
     this.eagle.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
