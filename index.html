@@ -6,14 +6,17 @@
     <meta name="theme-color" content="#0a0b0d" />
     <title>Battle City — Reforged</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230a0b0d'/><path d='M8 12h16v10H8z' fill='%23f0a63c'/><circle cx='16' cy='17' r='4' fill='%2315171c'/></svg>" />
-    <script type="module" crossorigin src="./assets/index-CNok0GAl.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DwjdADWv.css">
+    <script type="module" crossorigin src="./assets/index-XtpJ63xy.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/three-core-CB-kx_8K.js">
+    <link rel="modulepreload" crossorigin href="./assets/three-addons-DbDK1l7Z.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-rOCFAgT7.css">
   </head>
   <body>
     <div id="app">
       <canvas id="scene" aria-label="Battle City game field"></canvas>
 
       <div id="hud" class="hud hidden">
+        <div id="popups" class="popups"></div>
         <div class="hud-top">
           <div class="hud-block">
             <span class="label">STAGE</span>
@@ -57,6 +60,15 @@
             <div class="menu" id="titleMenu">
               <button class="menu-item" data-mode="1"><span class="key">1</span> ONE PLAYER</button>
               <button class="menu-item" data-mode="2"><span class="key">2</span> TWO PLAYERS</button>
+            </div>
+            <div class="stage-picker" id="stagePicker">
+              <button class="stage-btn" id="stagePrev" type="button" aria-label="Previous stage">&lsaquo;</button>
+              <div class="stage-readout">
+                <span class="stage-kicker">SECTOR</span>
+                <span class="stage-val" id="titleStageNum">01</span>
+                <span class="stage-name" id="titleStageName">DEFEND THE EAGLE</span>
+              </div>
+              <button class="stage-btn" id="stageNext" type="button" aria-label="Next stage">&rsaquo;</button>
             </div>
             <div class="controls">
               <div class="control-col">
