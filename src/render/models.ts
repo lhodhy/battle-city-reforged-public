@@ -2,7 +2,15 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { COLORS, DIRS } from '../core/constants';
 import type { Bullet, EnemyKind, PowerKind, Tank } from '../core/types';
-import { beamTexture, sparkTexture, treadTexture } from './textures';
+import {
+  beamTexture,
+  contactShadowTexture,
+  headlightPoolTexture,
+  sparkTexture,
+  tankArmorTexture,
+  tankNormalTexture,
+  treadTexture,
+} from './textures';
 
 const DIR_ANGLE = [0, -Math.PI / 2, Math.PI, Math.PI / 2];
 
@@ -35,7 +43,14 @@ interface GeoPool {
   bandBig: THREE.BufferGeometry;
   bulletCore: THREE.BufferGeometry;
   bulletTrail: THREE.BufferGeometry;
-  headlightBeam: THREE.BufferGeometry;
+  headlightPool: THREE.BufferGeometry;
+  contactShadow: THREE.BufferGeometry;
+  cupola: THREE.BufferGeometry;
+  optic: THREE.BufferGeometry;
+  smokePod: THREE.BufferGeometry;
+  fender: THREE.BufferGeometry;
+  coaxMg: THREE.BufferGeometry;
+  shackle: THREE.BufferGeometry;
   starChevron: THREE.BufferGeometry;
   starBarrelExt: THREE.BufferGeometry;
 }
@@ -44,9 +59,10 @@ let geo: GeoPool | null = null;
 
 function geometries(): GeoPool {
   if (geo) return geo;
-  const headlightBeam = new THREE.ConeGeometry(0.22, 1.35, 12, 1, true);
-  headlightBeam.rotateX(Math.PI / 2);
-  headlightBeam.translate(0, 0, -1.35 / 2);
+  const headlightPool = new THREE.PlaneGeometry(1.15, 1.45);
+  headlightPool.rotateX(-Math.PI / 2);
+  const contactShadow = new THREE.PlaneGeometry(1.15, 1.25);
+  contactShadow.rotateX(-Math.PI / 2);
 
   geo = {
     hull: new RoundedBoxGeometry(0.62, 0.2, 0.76, 3, 0.045),
@@ -77,7 +93,14 @@ function geometries(): GeoPool {
     bandBig: new THREE.TorusGeometry(0.252, 0.011, 6, 28),
     bulletCore: new THREE.CapsuleGeometry(0.038, 0.11, 4, 8),
     bulletTrail: new THREE.PlaneGeometry(0.09, 0.5),
-    headlightBeam,
+    headlightPool,
+    contactShadow,
+    cupola: new THREE.CylinderGeometry(0.082, 0.092, 0.05, 12),
+    optic: new THREE.BoxGeometry(0.055, 0.03, 0.035),
+    smokePod: new THREE.CylinderGeometry(0.016, 0.018, 0.08, 6),
+    fender: new THREE.BoxGeometry(0.15, 0.025, 0.84),
+    coaxMg: new THREE.CylinderGeometry(0.013, 0.015, 0.22, 6),
+    shackle: new THREE.TorusGeometry(0.024, 0.007, 6, 12),
     starChevron: new THREE.BoxGeometry(0.08, 0.03, 0.08),
     starBarrelExt: new THREE.CylinderGeometry(0.035, 0.04, 0.22, 10),
   };
@@ -154,15 +177,18 @@ export class TankVisual {
 
     this.hullMat = new THREE.MeshStandardMaterial({
       color,
-      metalness: 0.3,
-      roughness: 0.6,
-      envMapIntensity: 1.1,
+      map: tankArmorTexture(),
+      normalMap: tankNormalTexture(),
+      normalScale: new THREE.Vector2(0.75, 0.75),
+      metalness: 0.42,
+      roughness: 0.48,
+      envMapIntensity: 1.35,
       emissive: new THREE.Color(0xff6a4a),
       emissiveIntensity: bonus ? 0.5 : 0,
     });
     this.turretMat = this.hullMat.clone();
-    this.turretMat.color.multiplyScalar(0.82);
-    this.turretMat.roughness = 0.55;
+    this.turretMat.color.multiplyScalar(0.84);
+    this.turretMat.roughness = 0.44;
     this.accentMat = new THREE.MeshStandardMaterial({
       color: team === 'player' ? 0x332d22 : 0x25282a,
       metalness: 0.8,
@@ -199,6 +225,19 @@ export class TankVisual {
     glacis.rotation.x = racer ? -0.3 : -0.18;
     this.body.add(glacis);
 
+    const shadowMat = new THREE.MeshBasicMaterial({
+      map: contactShadowTexture(),
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+    });
+    this.materials.push(shadowMat);
+    const contactShadow = new THREE.Mesh(g.contactShadow, shadowMat);
+    contactShadow.position.y = 0.007;
+    contactShadow.renderOrder = 1;
+    contactShadow.userData.noShadow = true;
+    this.group.add(contactShadow);
+
     const trackX = heavy ? 0.355 : racer ? 0.295 : 0.325;
     const wheelCount = heavy ? 5 : racer ? 3 : 4;
     for (const side of [-1, 1]) {
@@ -206,6 +245,16 @@ export class TankVisual {
       track.position.set(side * trackX, racer ? 0.125 : 0.14, 0.01);
       track.scale.set(heavy ? 1.15 : racer ? 0.88 : 1, heavy ? 1.06 : racer ? 0.92 : 1, racer ? 1.08 : 1);
       this.body.add(track);
+
+      const fender = new THREE.Mesh(g.fender, this.hullMat);
+      fender.position.set(side * trackX, racer ? 0.25 : 0.27, 0.01);
+      fender.scale.set(heavy ? 1.15 : 0.96, 1, racer ? 1.06 : 1);
+      this.body.add(fender);
+
+      const shackle = new THREE.Mesh(g.shackle, darkMetal);
+      shackle.position.set(side * 0.2, 0.14, -0.39);
+      shackle.rotation.x = 0.4;
+      this.body.add(shackle);
 
       for (let i = 0; i < wheelCount; i++) {
         const wheel = new THREE.Mesh(g.wheel, darkMetal);
@@ -257,6 +306,32 @@ export class TankVisual {
     hatch.position.set(heavy ? -0.08 : 0.06, heavy ? 0.575 : racer ? 0.525 : 0.545, heavy ? 0.06 : 0.04);
     this.body.add(hatch);
 
+    const cupola = new THREE.Mesh(g.cupola, darkMetal);
+    cupola.position.set(heavy ? 0.09 : -0.09, heavy ? 0.575 : racer ? 0.52 : 0.54, 0.05);
+    this.body.add(cupola);
+
+    const opticMat = new THREE.MeshStandardMaterial({
+      color: 0x163848,
+      emissive: new THREE.Color(team === 'player' ? 0x6fe4ff : 0xff7040),
+      emissiveIntensity: 0.75,
+      metalness: 0.9,
+      roughness: 0.15,
+    });
+    this.materials.push(opticMat);
+    const optic = new THREE.Mesh(g.optic, opticMat);
+    optic.position.set(heavy ? 0.09 : -0.09, heavy ? 0.6 : racer ? 0.545 : 0.565, -0.02);
+    this.body.add(optic);
+
+    for (const side of [-1, 1]) {
+      for (let t = 0; t < 2; t++) {
+        const pod = new THREE.Mesh(g.smokePod, darkMetal);
+        pod.position.set(side * (assault ? 0.24 : 0.2), 0.45, -0.05 + t * 0.08);
+        pod.rotation.z = side * -0.55;
+        pod.rotation.x = -0.35;
+        this.body.add(pod);
+      }
+    }
+
     const collar = new THREE.Mesh(g.muzzle, this.accentMat);
     collar.rotation.x = Math.PI / 2;
     collar.position.set(0, assault ? 0.45 : 0.44, -0.22);
@@ -264,6 +339,12 @@ export class TankVisual {
     this.body.add(collar);
 
     this.barrel.position.set(0, assault ? 0.45 : 0.44, -0.2);
+    if (!assault) {
+      const coaxMg = new THREE.Mesh(g.coaxMg, gunMetal);
+      coaxMg.rotation.x = Math.PI / 2;
+      coaxMg.position.set(-0.075, -0.01, -0.14);
+      this.barrel.add(coaxMg);
+    }
     if (assault) {
       // Twin autocannons for the power tank.
       for (const side of [-1, 1]) {
@@ -342,18 +423,18 @@ export class TankVisual {
     const lightMat = new THREE.MeshStandardMaterial({
       color: 0xfff2c0,
       emissive: 0xffd27a,
-      emissiveIntensity: racer ? 0.55 : 0.4,
-      roughness: 0.3,
+      emissiveIntensity: racer ? 0.9 : 0.7,
+      roughness: 0.25,
     });
-    const beamMat = new THREE.MeshBasicMaterial({
-      color: team === 'player' ? 0xffe4a8 : 0xffa87a,
+    const poolMat = new THREE.MeshBasicMaterial({
+      map: headlightPoolTexture(),
+      color: team === 'player' ? 0xffe4a8 : 0xffb38a,
       transparent: true,
-      opacity: team === 'player' ? 0.12 : 0.07,
+      opacity: team === 'player' ? 0.34 : 0.18,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
-      side: THREE.DoubleSide,
     });
-    this.materials.push(lightMat, beamMat);
+    this.materials.push(lightMat, poolMat);
     for (const side of [-1, 1]) {
       const lx = side * (heavy ? 0.26 : 0.22);
       const ly = heavy ? 0.35 : 0.33;
@@ -362,13 +443,12 @@ export class TankVisual {
       light.scale.setScalar(racer ? 0.64 : heavy ? 0.9 : 0.78);
       light.position.set(lx, ly, lz);
       this.body.add(light);
-
-      const beam = new THREE.Mesh(g.headlightBeam, beamMat);
-      beam.position.set(lx, ly - 0.02, lz - 0.02);
-      beam.rotation.x = -0.14;
-      beam.userData.noShadow = true;
-      this.body.add(beam);
     }
+    const pool = new THREE.Mesh(g.headlightPool, poolMat);
+    pool.position.set(0, 0.018, racer ? -1.04 : -0.96);
+    pool.renderOrder = 2;
+    pool.userData.noShadow = true;
+    this.group.add(pool);
 
     const stow = new THREE.Mesh(g.stow, darkMetal);
     stow.scale.setScalar(heavy ? 1.1 : racer ? 0.8 : 1);

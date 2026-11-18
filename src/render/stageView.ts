@@ -7,6 +7,7 @@ import {
   asphaltTexture,
   brickNormalTexture,
   brickTexture,
+  cityWindowTexture,
   concreteTexture,
   forestFloorTexture,
   groundNormalTexture,
@@ -387,16 +388,24 @@ export class StageView {
       uniforms: {},
       vertexShader: /* glsl */ `
         varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vView;
         void main() {
           vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          vNormal = normalize(normalMatrix * normal);
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vView = normalize(-mv.xyz);
+          gl_Position = projectionMatrix * mv;
         }
       `,
       fragmentShader: /* glsl */ `
         varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vView;
         void main() {
-          float fade = pow(vUv.y, 1.8) * 0.095;
-          gl_FragColor = vec4(1.0, 0.87, 0.65, fade);
+          float edgeFade = pow(abs(dot(normalize(vNormal), normalize(vView))), 2.2);
+          float fade = pow(vUv.y, 1.6) * edgeFade * 0.14;
+          gl_FragColor = vec4(1.0, 0.86, 0.62, fade);
         }
       `,
       transparent: true,
@@ -431,11 +440,9 @@ export class StageView {
       beam.rotation.x = z < 0 ? -0.36 : 0.36;
       this.group.add(beam);
 
-      if (x === -2.6) {
-        const light = new THREE.PointLight(0xffd6a0, 7.5, 11, 2);
-        light.position.set(x + dir * 0.4, 2.4, z);
-        this.group.add(light);
-      }
+      const light = new THREE.PointLight(0xffd6a0, 6.2, 12.5, 2);
+      light.position.set(x + dir * 0.4, 2.4, z);
+      this.group.add(light);
     }
 
     // --- Distant ruined skyline for depth ---
@@ -452,11 +459,16 @@ export class StageView {
     surround.receiveShadow = true;
     this.group.add(surround);
 
+    const cityTex = cityWindowTexture();
     const ruinGeo = new THREE.BoxGeometry(1, 1, 1);
     const ruinMat = new THREE.MeshStandardMaterial({
-      color: 0x101720,
-      roughness: 0.95,
-      metalness: 0.05,
+      map: cityTex,
+      emissiveMap: cityTex,
+      emissive: new THREE.Color(0xffcfa0),
+      emissiveIntensity: 0.72,
+      color: 0x3b4859,
+      roughness: 0.85,
+      metalness: 0.1,
     });
     this.track(ruinGeo, ruinMat);
     const ruinCount = 44;

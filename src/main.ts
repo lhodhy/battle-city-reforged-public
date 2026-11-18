@@ -130,26 +130,26 @@ function dispatch(event: ReturnType<Game['drainEvents']>[number]): void {
       audio.sfx('start');
       break;
     case 'shoot':
-      audio.sfx(event.team === 'player' ? 'shoot' : 'enemyShoot');
+      audio.sfx(event.team === 'player' ? 'shoot' : 'enemyShoot', event.x);
       break;
     case 'brickBreak':
-      audio.sfx('brick');
+      audio.sfx('brick', event.x);
       break;
     case 'steelHit':
-      audio.sfx('ricochet');
-      audio.sfx('steel');
+      audio.sfx('ricochet', event.x);
+      audio.sfx('steel', event.x);
       break;
     case 'steelBreak':
-      audio.sfx('steelBreak');
+      audio.sfx('steelBreak', event.x);
       break;
     case 'tankHit':
-      audio.sfx('armorHit');
+      audio.sfx('armorHit', event.x);
       break;
     case 'iceSlide':
-      audio.sfx('ice');
+      audio.sfx('ice', event.x);
       break;
     case 'combo': {
-      audio.sfx('combo');
+      audio.sfx('combo', event.x);
       const pt = view.projectToScreen(event.x, 0.85, event.z);
       if (pt.visible) {
         hud.spawnPopup(pt.x, pt.y, `${event.count}× CHAIN +${event.bonus}`, '#ff9e44', true);
@@ -158,21 +158,21 @@ function dispatch(event: ReturnType<Game['drainEvents']>[number]): void {
       break;
     }
     case 'tankDestroyed':
-      audio.sfx(event.team === 'player' ? 'bigExplode' : 'explode');
+      audio.sfx(event.team === 'player' ? 'bigExplode' : 'explode', event.x);
       break;
     case 'playerOut':
       audio.sfx('out');
       hud.showToast('PLAYER DOWN', '#ff7a52');
       break;
     case 'powerupSpawn':
-      audio.sfx('powerup');
+      audio.sfx('powerup', event.x);
       break;
     case 'powerupPickup':
-      audio.sfx('pickup');
+      audio.sfx('pickup', event.x);
       hud.powerupToast(event.kind);
       break;
     case 'shield':
-      audio.sfx('shield');
+      audio.sfx('shield', event.x);
       break;
     case 'freeze':
       audio.sfx('freeze');

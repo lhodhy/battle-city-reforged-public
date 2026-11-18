@@ -79,7 +79,7 @@ const GRADE_SHADER = {
       color *= mix(0.74, 1.0, vig);
 
       float grain = hash21(uv * uResolution + uTime * 47.0);
-      color += (grain - 0.5) * 0.022;
+      color += (grain - 0.5) * 0.011;
 
       // Gentle S-curve for punch, then split-tone: cool shadows, warm highlights.
       color = mix(color, color * color * (3.0 - 2.0 * color), 0.22);
@@ -228,9 +228,9 @@ export class SceneView {
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(1, 1),
-      this.lowQuality ? 0.26 : 0.34,
-      0.62,
-      0.78,
+      this.lowQuality ? 0.28 : 0.38,
+      0.55,
+      0.74,
     );
     this.composer.addPass(this.bloomPass);
     this.gradePass = new ShaderPass(GRADE_SHADER);
@@ -245,7 +245,8 @@ export class SceneView {
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const envScene = new RoomEnvironment();
     this.scene.environment = pmrem.fromScene(envScene, 0.04).texture;
-    this.scene.environmentIntensity = 0.6;
+    this.scene.environmentIntensity = 0.88;
+    envScene.dispose();
     pmrem.dispose();
   }
 

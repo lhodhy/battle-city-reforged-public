@@ -155,7 +155,10 @@ export class AudioEngine {
   private sfxBus: GainNode | null = null;
   private engineGain: GainNode | null = null;
   private engineFilter: BiquadFilterNode | null = null;
+  private engineClatterFilter: BiquadFilterNode | null = null;
+  private engineClatterGain: GainNode | null = null;
   private engineOsc: OscillatorNode | null = null;
+  private engineSubOsc: OscillatorNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
 
   private muted = false;
@@ -190,34 +193,67 @@ export class AudioEngine {
     this.ctx = ctx;
 
     const master = ctx.createGain();
-    master.gain.value = this.muted ? 0 : 0.62;
+    master.gain.value = this.muted ? 0 : 0.68;
     const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -16;
-    compressor.knee.value = 22;
-    compressor.ratio.value = 6;
-    compressor.attack.value = 0.004;
-    compressor.release.value = 0.22;
+    compressor.threshold.value = -14;
+    compressor.knee.value = 18;
+    compressor.ratio.value = 5;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.18;
     master.connect(compressor).connect(ctx.destination);
     this.master = master;
+
+    // Urban night-arena convolution reverb send for spatial depth
+    const convolver = ctx.createConvolver();
+    convolver.buffer = this.makeReverbIR(ctx, 1.15);
+    const reverbOut = ctx.createGain();
+    reverbOut.gain.value = 0.24;
+    convolver.connect(reverbOut).connect(master);
 
     const musicFilter = ctx.createBiquadFilter();
     musicFilter.type = 'lowpass';
     musicFilter.frequency.value = 18000;
     musicFilter.Q.value = 0.8;
     const musicBus = ctx.createGain();
-    musicBus.gain.value = 0.5;
-    musicBus.connect(musicFilter).connect(master);
+    musicBus.gain.value = 0.46;
+    const musicVerb = ctx.createGain();
+    musicVerb.gain.value = 0.22;
+    musicBus.connect(musicFilter);
+    musicFilter.connect(master);
+    musicFilter.connect(musicVerb).connect(convolver);
     this.musicBus = musicBus;
     this.musicFilter = musicFilter;
 
     const sfxBus = ctx.createGain();
-    sfxBus.gain.value = 0.85;
+    sfxBus.gain.value = 0.9;
+    const sfxVerb = ctx.createGain();
+    sfxVerb.gain.value = 0.28;
     sfxBus.connect(master);
+    sfxBus.connect(sfxVerb).connect(convolver);
     this.sfxBus = sfxBus;
 
     this.noiseBuffer = this.makeNoise(ctx, 2.2);
     this.startEngine();
     return ctx;
+  }
+
+  private makeReverbIR(ctx: AudioContext, seconds: number): AudioBuffer {
+    const length = Math.floor(ctx.sampleRate * seconds);
+    const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
+    const slapSample = Math.floor(ctx.sampleRate * 0.045);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = buffer.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < length; i++) {
+        const t = i / length;
+        const decay = Math.pow(1 - t, 2.8);
+        const white = (Math.random() * 2 - 1) * decay;
+        lp = lp * 0.68 + white * 0.32;
+        data[i] = lp * 0.7;
+        if (i === slapSample) data[i] += (ch === 0 ? 0.28 : -0.28);
+      }
+    }
+    return buffer;
   }
 
   private makeNoise(ctx: AudioContext, seconds: number): AudioBuffer {
@@ -239,38 +275,67 @@ export class AudioEngine {
     gain.gain.value = 0;
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.value = 180;
-    filter.Q.value = 3;
+    filter.frequency.value = 160;
+    filter.Q.value = 2.4;
     const noise = ctx.createBufferSource();
     noise.buffer = this.noiseBuffer;
     noise.loop = true;
     noise.connect(filter).connect(gain).connect(this.master);
     noise.start();
 
+    const clatterFilter = ctx.createBiquadFilter();
+    clatterFilter.type = 'bandpass';
+    clatterFilter.frequency.value = 620;
+    clatterFilter.Q.value = 1.6;
+    const clatterGain = ctx.createGain();
+    clatterGain.gain.value = 0;
+    const clatterNoise = ctx.createBufferSource();
+    clatterNoise.buffer = this.noiseBuffer;
+    clatterNoise.loop = true;
+    clatterNoise.connect(clatterFilter).connect(clatterGain).connect(this.master);
+    clatterNoise.start();
+
     const osc = ctx.createOscillator();
     osc.type = 'sawtooth';
-    osc.frequency.value = 44;
+    osc.frequency.value = 42;
     const oscGain = ctx.createGain();
-    oscGain.gain.value = 0.5;
+    oscGain.gain.value = 0.45;
     osc.connect(oscGain).connect(gain);
     osc.start();
 
+    const subOsc = ctx.createOscillator();
+    subOsc.type = 'triangle';
+    subOsc.frequency.value = 21;
+    const subGain = ctx.createGain();
+    subGain.gain.value = 0.55;
+    subOsc.connect(subGain).connect(gain);
+    subOsc.start();
+
     this.engineGain = gain;
     this.engineFilter = filter;
+    this.engineClatterFilter = clatterFilter;
+    this.engineClatterGain = clatterGain;
     this.engineOsc = osc;
+    this.engineSubOsc = subOsc;
   }
 
   setEngine(intensity: number): void {
     if (!this.ctx || !this.engineGain) return;
-    const target = intensity > 0.001 ? 0.035 + intensity * 0.05 : 0;
+    const target = intensity > 0.001 ? 0.032 + intensity * 0.045 : 0;
     this.engineTarget = target;
     const now = this.ctx.currentTime;
-    this.engineGain.gain.setTargetAtTime(target, now, 0.18);
+    this.engineGain.gain.setTargetAtTime(target, now, 0.16);
     if (this.engineFilter) {
-      this.engineFilter.frequency.setTargetAtTime(150 + intensity * 220, now, 0.2);
+      this.engineFilter.frequency.setTargetAtTime(140 + intensity * 220, now, 0.18);
     }
     if (this.engineOsc) {
-      this.engineOsc.frequency.setTargetAtTime(42 + intensity * 14, now, 0.2);
+      const f = 38 + intensity * 16;
+      this.engineOsc.frequency.setTargetAtTime(f, now, 0.18);
+      this.engineSubOsc?.frequency.setTargetAtTime(f * 0.5, now, 0.18);
+    }
+    if (this.engineClatterGain && this.engineClatterFilter) {
+      this.engineClatterGain.gain.setTargetAtTime(intensity > 0.2 ? (intensity - 0.15) * 0.022 : 0, now, 0.12);
+      this.engineClatterFilter.frequency.setTargetAtTime(520 + intensity * 560, now, 0.15);
     }
   }
 
@@ -323,18 +388,27 @@ export class AudioEngine {
 
   private scheduleStep(step: number, time: number, track: Track, stepDur: number): void {
     const lead = track.lead[step];
-    if (lead) this.tone('square', midiToFreq(lead), midiToFreq(lead), stepDur * 1.55, 0.055, time, 2600);
+    if (lead) {
+      const f = midiToFreq(lead);
+      // Detuned dual-oscillator analog lead with resonant lowpass sweep
+      this.tone('sawtooth', f * 0.996, f * 0.996, stepDur * 1.55, 0.032, time, 2800);
+      this.tone('square', f * 1.004, f * 1.004, stepDur * 1.45, 0.028, time, 2400);
+    }
     const bass = track.bass[step];
-    if (bass) this.tone('triangle', midiToFreq(bass), midiToFreq(bass), stepDur * 1.7, 0.13, time, 700);
+    if (bass) {
+      const bf = midiToFreq(bass);
+      this.tone('sawtooth', bf, bf, stepDur * 1.65, 0.065, time, 520);
+      this.tone('sine', bf, bf, stepDur * 1.7, 0.11, time);
+    }
     const chord = track.chords[Math.floor(step / 8) % track.chords.length];
     const arpIndex = step % 4;
     const arpNote = chord[arpIndex] + 12;
-    this.tone('square', midiToFreq(arpNote), midiToFreq(arpNote), stepDur * 0.45, 0.018 * track.arpGain, time, 3800);
-    this.tone('square', midiToFreq(chord[(arpIndex + 1) % 4] + 12), midiToFreq(chord[(arpIndex + 1) % 4] + 12), stepDur * 0.4, 0.014 * track.arpGain, time + stepDur * 0.5, 4200);
+    this.tone('triangle', midiToFreq(arpNote), midiToFreq(arpNote), stepDur * 0.5, 0.022 * track.arpGain, time, 3400);
+    this.tone('square', midiToFreq(chord[(arpIndex + 1) % 4] + 12), midiToFreq(chord[(arpIndex + 1) % 4] + 12), stepDur * 0.4, 0.012 * track.arpGain, time + stepDur * 0.5, 3800);
 
     if (track.kick.includes(step)) this.kick(time);
-    if (track.snare.includes(step)) this.noiseHit(time, 0.11, 'highpass', 900, 0.2);
-    if (track.hat.includes(step)) this.noiseHit(time, 0.03, 'highpass', 6200, 0.09);
+    if (track.snare.includes(step)) this.noiseHit(time, 0.12, 'highpass', 1050, 0.18);
+    if (track.hat.includes(step)) this.noiseHit(time, 0.032, 'highpass', 6400, 0.075);
   }
 
   private tone(
@@ -401,22 +475,29 @@ export class AudioEngine {
     src.start(time, Math.random() * 1.2, duration + 0.02);
   }
 
-  sfx(name: string): void {
-    if (!this.ctx) return;
+  sfx(name: string, worldX?: number): void {
+    if (!this.ctx || !this.sfxBus) return;
     const ctx = this.ctx;
-    if (!this.sfxBus) return;
     const now = ctx.currentTime + 0.001;
     const rand = (spread: number) => 1 + (Math.random() - 0.5) * spread;
+
+    let outNode: AudioNode = this.sfxBus;
+    if (worldX !== undefined && typeof ctx.createStereoPanner === 'function') {
+      const panner = ctx.createStereoPanner();
+      panner.pan.value = Math.max(-0.85, Math.min(0.85, (worldX - 6.5) / 6.5));
+      panner.connect(this.sfxBus);
+      outNode = panner;
+    }
 
     const playerTone = (type: OscillatorType, freq: number, endFreq: number, dur: number, gain: number, delay = 0, filterFreq?: number) => {
       const start = now + delay;
       const osc = ctx.createOscillator();
       osc.type = type;
-      osc.frequency.setValueAtTime(Math.max(20, freq * rand(0.02)), start);
+      osc.frequency.setValueAtTime(Math.max(20, freq * rand(0.03)), start);
       osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFreq), start + dur * 0.92);
       const env = ctx.createGain();
       env.gain.setValueAtTime(0.0001, start);
-      env.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), start + 0.006);
+      env.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), start + 0.005);
       env.gain.exponentialRampToValueAtTime(0.0001, start + dur);
       let node: AudioNode = env;
       if (filterFreq) {
@@ -427,9 +508,9 @@ export class AudioEngine {
         node = filter;
       }
       osc.connect(env);
-      node.connect(this.sfxBus!);
+      node.connect(outNode);
       osc.start(start);
-      osc.stop(start + dur + 0.04);
+      osc.stop(start + dur + 0.05);
     };
 
     const noise = (dur: number, gain: number, type: BiquadFilterType, freq: number, endFreq?: number, delay = 0, q = 1) => {
@@ -445,72 +526,83 @@ export class AudioEngine {
       const env = ctx.createGain();
       env.gain.setValueAtTime(gain, start);
       env.gain.exponentialRampToValueAtTime(0.0001, start + dur);
-      src.connect(filter).connect(env).connect(this.sfxBus!);
+      src.connect(filter).connect(env).connect(outNode);
       src.start(start, Math.random() * 1.5, dur + 0.02);
     };
 
     switch (name) {
       case 'shoot':
-        playerTone('square', 820, 160, 0.09, 0.11, 0, 3200);
-        noise(0.06, 0.08, 'highpass', 2400);
+        playerTone('sine', 165, 36, 0.14, 0.22);
+        playerTone('sawtooth', 460, 95, 0.11, 0.09, 0, 1600);
+        noise(0.075, 0.15, 'bandpass', 1900, 650, 0, 1.1);
+        playerTone('sine', 2850, 2680, 0.06, 0.025, 0.11);
         break;
       case 'enemyShoot':
-        playerTone('square', 540, 120, 0.1, 0.06, 0, 2400);
-        noise(0.05, 0.05, 'highpass', 1800);
+        playerTone('sine', 125, 34, 0.13, 0.14);
+        playerTone('sawtooth', 320, 80, 0.1, 0.055, 0, 1200);
+        noise(0.06, 0.09, 'bandpass', 1500, 500, 0, 1.1);
         break;
       case 'brick':
-        noise(0.16, 0.18, 'bandpass', 900, 400, 0, 1.2);
-        playerTone('triangle', 180, 90, 0.12, 0.07);
+        noise(0.18, 0.22, 'bandpass', 850, 260, 0, 1.0);
+        noise(0.14, 0.12, 'highpass', 1800, 900, 0.05, 0.9);
+        playerTone('triangle', 150, 55, 0.14, 0.12);
         break;
       case 'steel':
-        playerTone('triangle', 2100, 1500, 0.12, 0.055);
-        noise(0.08, 0.09, 'highpass', 3200);
+        playerTone('sine', 2150, 1620, 0.14, 0.065);
+        playerTone('triangle', 3180, 2400, 0.11, 0.04);
+        noise(0.07, 0.09, 'highpass', 3600);
         break;
       case 'steelBreak':
-        playerTone('sawtooth', 280, 65, 0.2, 0.11, 0, 1400);
-        playerTone('triangle', 1600, 600, 0.18, 0.07);
-        noise(0.22, 0.18, 'highpass', 1800, 500);
+        playerTone('sawtooth', 240, 48, 0.24, 0.14, 0, 1300);
+        playerTone('sine', 1480, 520, 0.22, 0.08);
+        noise(0.28, 0.24, 'bandpass', 1600, 320, 0, 1.1);
         break;
       case 'hit':
-        playerTone('square', 320, 110, 0.09, 0.08);
-        noise(0.1, 0.12, 'bandpass', 1400, 500, 0, 1.4);
+        playerTone('sine', 130, 48, 0.12, 0.14);
+        noise(0.11, 0.14, 'bandpass', 1400, 480, 0, 1.4);
         break;
       case 'armorHit':
-        playerTone('triangle', 420, 180, 0.14, 0.11);
-        playerTone('square', 840, 360, 0.11, 0.05, 0, 2000);
-        noise(0.12, 0.14, 'bandpass', 1700, 700, 0, 1.8);
+        playerTone('sine', 115, 42, 0.14, 0.18);
+        playerTone('triangle', 440, 210, 0.18, 0.1);
+        playerTone('sine', 685, 640, 0.16, 0.06);
+        playerTone('sine', 1120, 980, 0.12, 0.04);
+        noise(0.12, 0.14, 'bandpass', 1900, 700, 0, 1.7);
         break;
       case 'combo':
         [587, 880, 1175].forEach((f, i) => {
-          playerTone('triangle', f, f * 1.01, 0.13, 0.08, i * 0.055);
-          playerTone('square', f * 2, f * 2, 0.09, 0.03, i * 0.055, 3400);
+          playerTone('triangle', f, f * 1.01, 0.16, 0.09, i * 0.055);
+          playerTone('sine', f * 2, f * 2, 0.12, 0.04, i * 0.055);
         });
         break;
       case 'thunder':
-        noise(1.3, 0.35, 'lowpass', 320, 45, 0, 0.8);
-        playerTone('sine', 58, 24, 1.1, 0.24);
+        noise(1.5, 0.38, 'lowpass', 340, 42, 0, 0.7);
+        playerTone('sine', 62, 22, 1.25, 0.28);
         break;
       case 'ice':
-        noise(0.11, 0.06, 'bandpass', 3800, 2200, 0, 1.8);
+        noise(0.12, 0.07, 'bandpass', 4200, 2100, 0, 1.8);
         break;
       case 'ricochet':
-        playerTone('triangle', 2600, 900, 0.1, 0.03);
+        playerTone('sine', 2800, 1150, 0.13, 0.045);
         break;
       case 'explode':
-        noise(0.55, 0.32, 'lowpass', 1800, 90, 0, 0.7);
-        playerTone('sine', 110, 38, 0.42, 0.24);
-        playerTone('sawtooth', 220, 60, 0.2, 0.06, 0, 900);
+        noise(0.06, 0.3, 'highpass', 1400, 400, 0, 0.8);
+        noise(0.68, 0.36, 'lowpass', 1800, 72, 0.01, 0.65);
+        playerTone('sine', 98, 26, 0.55, 0.32);
+        playerTone('sawtooth', 190, 44, 0.26, 0.09, 0, 750);
+        noise(0.35, 0.12, 'bandpass', 2400, 900, 0.12, 1.2);
         break;
       case 'bigExplode':
-        noise(0.9, 0.4, 'lowpass', 2200, 60, 0, 0.6);
-        playerTone('sine', 130, 30, 0.7, 0.3);
-        playerTone('sawtooth', 340, 50, 0.35, 0.09, 0, 700);
+        noise(0.08, 0.38, 'highpass', 1600, 350, 0, 0.8);
+        noise(1.05, 0.44, 'lowpass', 2200, 55, 0.01, 0.6);
+        playerTone('sine', 110, 22, 0.85, 0.38);
+        playerTone('sawtooth', 260, 40, 0.4, 0.12, 0, 680);
+        noise(0.5, 0.16, 'bandpass', 2200, 700, 0.15, 1.1);
         break;
       case 'base':
-        noise(1.4, 0.5, 'lowpass', 2600, 50, 0, 0.5);
-        playerTone('sine', 90, 24, 1.1, 0.4);
-        playerTone('sawtooth', 180, 40, 0.6, 0.13, 0, 600);
-        playerTone('square', 440, 110, 0.5, 0.09, 0.35, 1200);
+        noise(1.5, 0.52, 'lowpass', 2600, 44, 0, 0.5);
+        playerTone('sine', 88, 20, 1.25, 0.44);
+        playerTone('sawtooth', 175, 36, 0.65, 0.15, 0, 580);
+        playerTone('triangle', 390, 95, 0.55, 0.1, 0.32, 1100);
         break;
       case 'powerup':
         playerTone('square', 660, 660, 0.1, 0.07, 0);
@@ -570,7 +662,7 @@ export class AudioEngine {
   toggleMute(): boolean {
     this.muted = !this.muted;
     if (this.ctx && this.master) {
-      this.master.gain.setTargetAtTime(this.muted ? 0 : 0.62, this.ctx.currentTime, 0.05);
+      this.master.gain.setTargetAtTime(this.muted ? 0 : 0.68, this.ctx.currentTime, 0.05);
     }
     return this.muted;
   }

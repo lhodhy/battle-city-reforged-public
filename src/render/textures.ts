@@ -655,6 +655,198 @@ export function concreteTexture(): THREE.CanvasTexture {
   });
 }
 
+export function tankArmorTexture(): THREE.CanvasTexture {
+  return cached('tankArmor', () => {
+    const size = 256;
+    const { canvas, ctx } = makeCanvas(size);
+    ctx.fillStyle = '#dcdcdc';
+    ctx.fillRect(0, 0, size, size);
+
+    // Subtle weathered paint mottling
+    for (let i = 0; i < 40; i++) {
+      const x = hash2(i, 101) * size;
+      const y = hash2(i, 102) * size;
+      const r = 14 + hash2(i, 103) * 38;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      const dark = hash2(i, 104) > 0.5;
+      g.addColorStop(0, dark ? 'rgba(90,90,90,0.14)' : 'rgba(255,255,255,0.12)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+
+    // Armor panel seams
+    ctx.strokeStyle = 'rgba(40,40,40,0.45)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(10, 10, size - 20, size - 20);
+    ctx.beginPath();
+    ctx.moveTo(10, size * 0.5);
+    ctx.lineTo(size - 10, size * 0.5);
+    ctx.moveTo(size * 0.5, 10);
+    ctx.lineTo(size * 0.5, size * 0.5);
+    ctx.stroke();
+
+    // Edge-wear metallic highlights along panel borders
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(12, 12, size - 24, size - 24);
+
+    // Engine deck louvers in lower-right quadrant
+    for (let y = size * 0.62; y < size * 0.88; y += 8) {
+      ctx.fillStyle = 'rgba(28,28,28,0.55)';
+      ctx.fillRect(size * 0.58, y, size * 0.28, 3.5);
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fillRect(size * 0.58, y + 3.5, size * 0.28, 1);
+    }
+
+    // Corner rivets
+    for (const [rx, ry] of [
+      [20, 20], [size - 20, 20], [20, size - 20], [size - 20, size - 20],
+      [size * 0.5 - 10, 20], [size * 0.5 + 10, 20],
+      [20, size * 0.5 - 10], [size - 20, size * 0.5 - 10],
+    ]) {
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.beginPath();
+      ctx.arc(rx, ry, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(20,20,20,0.45)';
+      ctx.beginPath();
+      ctx.arc(rx + 1, ry + 1, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Brushed steel micro-scratches
+    for (let i = 0; i < 65; i++) {
+      ctx.strokeStyle = `rgba(255,255,255,${0.04 + hash2(i, 120) * 0.08})`;
+      ctx.lineWidth = 0.8;
+      const sx = hash2(i, 121) * size;
+      const sy = hash2(i, 122) * size;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + (hash2(i, 123) - 0.5) * 26, sy + (hash2(i, 124) - 0.5) * 26);
+      ctx.stroke();
+    }
+
+    noise(ctx, size, 1200, 0.08, false);
+    return finish(canvas, true);
+  });
+}
+
+export function tankNormalTexture(): THREE.DataTexture {
+  return cached('tankNormal', () => {
+    const size = 256;
+    const { canvas, ctx } = makeCanvas(size);
+    ctx.fillStyle = '#888888';
+    ctx.fillRect(0, 0, size, size);
+
+    // Recessed panel seams
+    ctx.strokeStyle = '#363636';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(10, 10, size - 20, size - 20);
+    ctx.beginPath();
+    ctx.moveTo(10, size * 0.5);
+    ctx.lineTo(size - 10, size * 0.5);
+    ctx.moveTo(size * 0.5, 10);
+    ctx.lineTo(size * 0.5, size * 0.5);
+    ctx.stroke();
+
+    // Louvers
+    for (let y = size * 0.62; y < size * 0.88; y += 8) {
+      ctx.fillStyle = '#2a2a2a';
+      ctx.fillRect(size * 0.58, y, size * 0.28, 3.5);
+      ctx.fillStyle = '#b4b4b4';
+      ctx.fillRect(size * 0.58, y + 3.5, size * 0.28, 2);
+    }
+
+    // Raised rivets
+    for (const [rx, ry] of [
+      [20, 20], [size - 20, 20], [20, size - 20], [size - 20, size - 20],
+      [size * 0.5 - 10, 20], [size * 0.5 + 10, 20],
+      [20, size * 0.5 - 10], [size - 20, size * 0.5 - 10],
+    ]) {
+      const g = ctx.createRadialGradient(rx, ry, 0.5, rx, ry, 3.5);
+      g.addColorStop(0, '#f0f0f0');
+      g.addColorStop(1, '#888888');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(rx, ry, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    return normalFromHeight(canvas, 1.9);
+  });
+}
+
+export function contactShadowTexture(): THREE.CanvasTexture {
+  return cached('contactShadow', () => {
+    const size = 128;
+    const { canvas, ctx } = makeCanvas(size);
+    const g = ctx.createRadialGradient(size / 2, size / 2, size * 0.14, size / 2, size / 2, size * 0.5);
+    g.addColorStop(0, 'rgba(0,0,0,0.72)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.34)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    const tex = finish(canvas, false);
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  });
+}
+
+export function headlightPoolTexture(): THREE.CanvasTexture {
+  return cached('headlightPool', () => {
+    const size = 128;
+    const { canvas, ctx } = makeCanvas(size);
+    ctx.clearRect(0, 0, size, size);
+    // Soft dual-beam light pool projecting upward in canvas (maps to -Z ahead of tank)
+    for (const cx of [size * 0.34, size * 0.66]) {
+      ctx.save();
+      ctx.translate(cx, size * 0.94);
+      const grad = ctx.createRadialGradient(0, -size * 0.36, 2, 0, -size * 0.44, size * 0.46);
+      grad.addColorStop(0, 'rgba(255,242,210,0.65)');
+      grad.addColorStop(0.45, 'rgba(255,220,160,0.24)');
+      grad.addColorStop(1, 'rgba(255,200,120,0)');
+      ctx.scale(0.58, 1.0);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, -size * 0.44, size * 0.46, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    const tex = finish(canvas, true);
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  });
+}
+
+export function cityWindowTexture(): THREE.CanvasTexture {
+  return cached('cityWindow', () => {
+    const size = 256;
+    const { canvas, ctx } = makeCanvas(size);
+    ctx.fillStyle = '#090c11';
+    ctx.fillRect(0, 0, size, size);
+    const cols = 12;
+    const rows = 18;
+    const cw = size / cols;
+    const rh = size / rows;
+    for (let r = 1; r < rows - 1; r++) {
+      for (let c = 1; c < cols - 1; c++) {
+        const h = hash2(c * 13 + r, r * 7 + c);
+        if (h > 0.84) {
+          ctx.fillStyle = h > 0.93 ? 'rgba(130, 200, 255, 0.78)' : 'rgba(255, 190, 105, 0.85)';
+          ctx.fillRect(c * cw + 3, r * rh + 3, cw - 6, rh - 6);
+        } else if (h > 0.55) {
+          ctx.fillStyle = 'rgba(25, 32, 42, 0.7)';
+          ctx.fillRect(c * cw + 3, r * rh + 3, cw - 6, rh - 6);
+        }
+      }
+    }
+    return finish(canvas, true);
+  });
+}
+
 export function disposeTextures(): void {
   for (const texture of cache.values()) texture.dispose();
   cache.clear();
