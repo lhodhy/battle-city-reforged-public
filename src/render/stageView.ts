@@ -16,7 +16,6 @@ import {
   iceTexture,
   metalTexture,
   steelNormalTexture,
-  waterNormalTexture,
 } from './textures';
 
 const QUAD_OFFSETS = [
@@ -29,8 +28,9 @@ const QUAD_OFFSETS = [
 export class StageView {
   readonly group = new THREE.Group();
   readonly base: BaseVisual;
-  private waterMat: THREE.MeshPhysicalMaterial | null = null;
-  private waterNormal: THREE.Texture | null = null;
+  private waterUniform = { value: 0 };
+  private searchlights: THREE.Group[] = [];
+  private beacons: THREE.MeshStandardMaterial[] = [];
   private brickMesh: THREE.InstancedMesh | null = null;
   private steelMesh: THREE.InstancedMesh | null = null;
   private brickSlots = new Map<number, number[]>();
@@ -445,6 +445,66 @@ export class StageView {
       this.group.add(light);
     }
 
+    // --- Sweeping sky searchlights & blinking perimeter aviation beacons ---
+    const sweepGeo = new THREE.CylinderGeometry(0.18, 2.2, 15.0, 14, 1, true);
+    sweepGeo.translate(0, 7.5, 0);
+    const sweepMat = new THREE.ShaderMaterial({
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vView;
+        void main() {
+          vUv = uv;
+          vNormal = normalize(normalMatrix * normal);
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vView = normalize(-mv.xyz);
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        varying vec3 vView;
+        void main() {
+          float edgeFade = pow(abs(dot(normalize(vNormal), normalize(vView))), 2.4);
+          float lenFade = (1.0 - vUv.y) * smoothstep(0.0, 0.08, vUv.y);
+          gl_FragColor = vec4(0.65, 0.84, 1.0, edgeFade * lenFade * 0.11);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    const beaconGeo = new THREE.SphereGeometry(0.075, 10, 8);
+    this.track(sweepGeo, sweepMat, beaconGeo);
+
+    for (const [sx, sz] of [
+      [-3.8, -3.6],
+      [FIELD + 3.8, -3.6],
+    ] as const) {
+      const pivot = new THREE.Group();
+      pivot.position.set(sx, 0.2, sz);
+      const beam = new THREE.Mesh(sweepGeo, sweepMat);
+      beam.rotation.z = sx < 0 ? -0.35 : 0.35;
+      beam.rotation.x = 0.25;
+      pivot.add(beam);
+      this.group.add(pivot);
+      this.searchlights.push(pivot);
+
+      const beaconMat = new THREE.MeshStandardMaterial({
+        color: 0xff3b24,
+        emissive: new THREE.Color(0xff3b24),
+        emissiveIntensity: 2.2,
+        roughness: 0.2,
+      });
+      this.track(beaconMat);
+      this.beacons.push(beaconMat);
+      const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+      beacon.position.set(sx, 2.7, sz);
+      this.group.add(beacon);
+    }
+
     // --- Distant ruined skyline for depth ---
     const surroundGeo = new THREE.PlaneGeometry(150, 150);
     const surroundMat = new THREE.MeshStandardMaterial({
@@ -554,23 +614,45 @@ export class StageView {
     }
 
     if (waterSpots.length) {
-      const waterNormal = waterNormalTexture().clone();
-      waterNormal.needsUpdate = true;
-      this.waterNormal = waterNormal;
-      const waterMat = new THREE.MeshPhysicalMaterial({
-        color: 0x0c3442,
-        roughness: 0.04,
-        metalness: 0.12,
-        clearcoat: 1,
-        clearcoatRoughness: 0.02,
-        normalMap: waterNormal,
-        normalScale: new THREE.Vector2(0.55, 0.55),
+      const waterMat = new THREE.ShaderMaterial({
+        uniforms: {
+          uTime: this.waterUniform,
+        },
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          varying vec3 vWorldPos;
+          void main() {
+            vUv = uv;
+            vec4 wp = vec4(position, 1.0);
+            #ifdef USE_INSTANCING
+              wp = instanceMatrix * wp;
+            #endif
+            vWorldPos = (modelMatrix * wp).xyz;
+            gl_Position = projectionMatrix * viewMatrix * modelMatrix * wp;
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform float uTime;
+          varying vec2 vUv;
+          varying vec3 vWorldPos;
+          void main() {
+            vec2 p = vWorldPos.xz;
+            float w1 = sin(p.x * 5.2 + uTime * 1.9 + sin(p.y * 3.1 - uTime * 1.1));
+            float w2 = cos(p.y * 5.6 - uTime * 1.5 + cos(p.x * 3.7 + uTime * 1.3));
+            float caustic = smoothstep(0.35, 0.98, (w1 + w2) * 0.25 + 0.5);
+            float sparkle = pow(max(0.0, (w1 * w2) * 0.5 + 0.5), 6.0);
+            float edge = max(abs(vUv.x - 0.5), abs(vUv.y - 0.5));
+            float foam = smoothstep(0.41, 0.495, edge);
+            vec3 deep = vec3(0.025, 0.14, 0.21);
+            vec3 crest = vec3(0.16, 0.48, 0.62);
+            vec3 col = mix(deep, crest, caustic * 0.72);
+            col += vec3(0.45, 0.85, 1.0) * (sparkle * 0.45 + foam * 0.28);
+            gl_FragColor = vec4(col, 0.92);
+          }
+        `,
         transparent: true,
-        opacity: 0.9,
-        envMapIntensity: 1.7,
         side: THREE.DoubleSide,
       });
-      this.waterMat = waterMat;
       const waterGeo = new THREE.PlaneGeometry(0.985, 0.985);
       waterGeo.rotateX(-Math.PI / 2);
       const waterBedMat = new THREE.MeshStandardMaterial({ color: 0x04141b, roughness: 0.8, metalness: 0.1 });
@@ -579,7 +661,6 @@ export class StageView {
 
       const bedMesh = new THREE.InstancedMesh(waterBedGeo, waterBedMat, waterSpots.length);
       const surfaceMesh = new THREE.InstancedMesh(waterGeo, waterMat, waterSpots.length);
-      surfaceMesh.receiveShadow = true;
       for (let i = 0; i < waterSpots.length; i++) {
         dummy.rotation.set(0, 0, 0);
         dummy.scale.setScalar(1);
@@ -856,9 +937,13 @@ export class StageView {
   update(dt: number, time: number): void {
     this.time += dt;
     this.windUniform.value = time;
-    if (this.waterNormal) {
-      this.waterNormal.offset.x = time * 0.04;
-      this.waterNormal.offset.y = time * 0.027;
+    this.waterUniform.value = time;
+    for (let i = 0; i < this.searchlights.length; i++) {
+      this.searchlights[i].rotation.y = Math.sin(time * 0.42 + i * 2.1) * 0.55;
+    }
+    for (let i = 0; i < this.beacons.length; i++) {
+      const pulse = Math.pow(Math.max(0, Math.sin(time * 3.2 + i * 1.4)), 4);
+      this.beacons[i].emissiveIntensity = 0.25 + pulse * 3.2;
     }
     this.base.update(time);
   }
@@ -872,8 +957,8 @@ export class StageView {
     this.group.clear();
     for (const item of this.disposables) item.dispose();
     this.disposables = [];
-    this.waterMat = null;
-    this.waterNormal = null;
+    this.searchlights = [];
+    this.beacons = [];
   }
 
   dispose(): void {

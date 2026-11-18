@@ -171,9 +171,9 @@ export class SceneView {
   private lightning = 0;
   private lastStrike = 0;
   private pendingThunder = false;
-  private baseKeyIntensity = 4.1;
-  private cameraDir = new THREE.Vector3(0, 0.62, 0.785).normalize();
-  private cameraTarget = new THREE.Vector3(FIELD / 2, 0, 6.8);
+  private baseKeyIntensity = 4.5;
+  private cameraDir = new THREE.Vector3(0, 0.56, 0.828).normalize();
+  private cameraTarget = new THREE.Vector3(FIELD / 2, 0, 6.7);
   private cameraLead = new THREE.Vector2(0, 0);
   private projVec = new THREE.Vector3();
   private camAxisY = new THREE.Vector3(0, 1, 0);
@@ -203,7 +203,7 @@ export class SceneView {
     this.scene.background = new THREE.Color(0x05070a);
     this.scene.fog = new THREE.FogExp2(0x0a1118, 0.021);
 
-    this.camera = new THREE.PerspectiveCamera(36, 1, 0.1, 220);
+    this.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 220);
 
     this.stage = new StageView();
     this.scene.add(this.stage.group);
@@ -273,7 +273,7 @@ export class SceneView {
     this.scene.add(key, key.target);
 
     // Cool counter-light from behind: separates silhouettes from the ground.
-    const rim = new THREE.DirectionalLight(0x86c8ff, 1.45);
+    const rim = new THREE.DirectionalLight(0x68bcff, 2.0);
     rim.position.set(-10, 7.5, -8);
     rim.target.position.set(6.5, 0, 6.5);
     this.scene.add(rim, rim.target);

@@ -165,6 +165,7 @@ export class TankVisual {
   private team: string;
   private baseEmissive: number;
   private wheelSpin = 0;
+  private visualYaw: number | null = null;
   private marker: THREE.Mesh | null = null;
   private baseScale = 1.22;
 
@@ -532,11 +533,14 @@ export class TankVisual {
       uniforms: {
         uColor: { value: new THREE.Color(team === 'player' ? 0x7fd9ff : 0xff9a66) },
         uPulse: { value: 0 },
+        uTime: { value: 0 },
       },
       vertexShader: /* glsl */ `
         varying vec3 vNormal;
         varying vec3 vView;
+        varying vec3 vPos;
         void main() {
+          vPos = position;
           vNormal = normalize(normalMatrix * normal);
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
           vView = normalize(-mv.xyz);
@@ -546,12 +550,32 @@ export class TankVisual {
       fragmentShader: /* glsl */ `
         uniform vec3 uColor;
         uniform float uPulse;
+        uniform float uTime;
         varying vec3 vNormal;
         varying vec3 vView;
+        varying vec3 vPos;
+
+        float hexDist(vec2 p) {
+          p = abs(p);
+          return max(dot(p, normalize(vec2(1.0, 1.7320508))), p.x);
+        }
+
+        float hexGrid(vec2 uv) {
+          vec2 r = vec2(1.0, 1.7320508);
+          vec2 h = r * 0.5;
+          vec2 a = mod(uv, r) - h;
+          vec2 b = mod(uv - h, r) - h;
+          vec2 gv = dot(a, a) < dot(b, b) ? a : b;
+          return 0.5 - hexDist(gv);
+        }
+
         void main() {
-          float fres = pow(1.0 - abs(dot(vNormal, vView)), 2.2);
-          float a = fres * (0.42 + uPulse * 0.22);
-          gl_FragColor = vec4(uColor * (0.5 + fres * 1.3), a);
+          float fres = pow(1.0 - abs(dot(vNormal, vView)), 2.0);
+          vec2 hexUv = vec2(atan(vPos.z, vPos.x) * 3.82, vPos.y * 10.0);
+          float hexEdge = smoothstep(0.08, 0.01, hexGrid(hexUv));
+          float scan = 0.6 + 0.4 * sin(vPos.y * 18.0 - uTime * 7.0);
+          float a = clamp(fres * (0.35 + uPulse * 0.25) + hexEdge * (0.28 + fres * 0.45) * scan, 0.0, 0.92);
+          gl_FragColor = vec4(uColor * (0.7 + fres * 1.4 + hexEdge * 0.6), a);
         }
       `,
       transparent: true,
@@ -577,7 +601,14 @@ export class TankVisual {
 
   update(tank: Tank, time: number, dt: number, frozen = false): void {
     this.group.position.set(tank.x, 0, tank.z);
-    this.group.rotation.y = DIR_ANGLE[tank.dir] ?? 0;
+    const targetYaw = DIR_ANGLE[tank.dir] ?? 0;
+    if (this.visualYaw === null) {
+      this.visualYaw = targetYaw;
+    } else {
+      const diff = ((targetYaw - this.visualYaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+      this.visualYaw += diff * Math.min(1, dt * 18);
+    }
+    this.group.rotation.y = this.visualYaw;
 
     this.body.rotation.x = tank.recoil * 0.045 - tank.moving * 0.018;
     this.body.position.y = Math.sin(time * 42 + tank.x * 3) * (0.0018 + tank.moving * 0.0025);
@@ -639,6 +670,7 @@ export class TankVisual {
     if (tank.shield > 0) {
       this.shield.visible = true;
       this.shieldMat.uniforms.uPulse.value = Math.sin(time * 9) * 0.5 + 0.5;
+      this.shieldMat.uniforms.uTime.value = time;
       this.shield.scale.setScalar(1 + Math.sin(time * 9) * 0.035);
       this.shield.rotation.y += dt * 0.8;
     } else {

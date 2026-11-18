@@ -12,6 +12,7 @@ import {
   PLAYER_BULLET_FAST,
   PLAYER_BULLET_SPEED,
   PLAYER_RELOAD,
+  PLAYER_RELOAD_STAR2,
   PLAYER_RELOAD_STAR3,
   PLAYER_SHIELD_ON_SPAWN,
   PLAYER_SPAWNS,
@@ -135,7 +136,7 @@ export class Game {
     this.shovel = 0;
     this.spawnQueue = this.buildEnemyQueue();
     this.spawnedCount = 0;
-    this.spawnTimer = 0.8;
+    this.spawnTimer = 0.45;
     this.stageStartScore = this.score[0] + this.score[1];
     this.tally = { basic: 0, fast: 0, power: 0, armor: 0 };
     this.comboCount = [0, 0];
@@ -385,7 +386,7 @@ export class Game {
 
   private enemyConsiderFire(tank: Tank): void {
     if (tank.cooldown > 0) return;
-    if (this.rng.chance(0.006)) {
+    if (this.rng.chance(0.014)) {
       this.tryFire(tank);
       return;
     }
@@ -501,7 +502,9 @@ export class Game {
       tank.team === 'player'
         ? tank.star >= 3
           ? PLAYER_RELOAD_STAR3
-          : PLAYER_RELOAD
+          : tank.star >= 2
+            ? PLAYER_RELOAD_STAR2
+            : PLAYER_RELOAD
         : ENEMY_STATS[tank.kind as EnemyKind].reload;
     tank.recoil = 1;
     this.emit({ type: 'shoot', x, z, dir: tank.dir, team: tank.team, owner: tank.id, power });
@@ -509,7 +512,8 @@ export class Game {
 
   private updateSpawns(dt: number): void {
     if (this.spawnQueue.length === 0) return;
-    const max = this.mode === 2 ? MAX_ENEMIES_2P : MAX_ENEMIES_1P;
+    const baseMax = this.mode === 2 ? MAX_ENEMIES_2P : MAX_ENEMIES_1P;
+    const max = baseMax + Math.min(2, Math.floor((this.stage - 1) / 2));
     if (this.enemyTanks().length >= max) return;
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
@@ -554,7 +558,7 @@ export class Game {
       };
       this.tanks.push(tank);
       this.emit({ type: 'spawn', x: tank.x, z: tank.z, team: 'enemy', kind });
-      this.spawnTimer = this.mode === 2 ? 1.4 : 1.9;
+      this.spawnTimer = this.mode === 2 ? 0.85 : 1.15;
       return;
     }
     this.spawnTimer = 0.4;
@@ -700,7 +704,7 @@ export class Game {
       kind,
       bonus: tank.bonus,
     });
-    if (tank.bonus) {
+    if (tank.bonus || (!byPowerup && (kind === 'armor' || kind === 'power') && this.rng.chance(0.25))) {
       this.dropPowerup(tank.x, tank.z);
     }
   }
@@ -729,7 +733,9 @@ export class Game {
   }
 
   private dropPowerup(x: number, z: number): void {
-    const kind = this.rng.pick(POWER_KINDS);
+    const needsStar = this.playerTanks().some((t) => t.star < 3);
+    const pool: PowerKind[] = needsStar ? [...POWER_KINDS, 'star', 'star'] : POWER_KINDS;
+    const kind = this.rng.pick(pool);
     let px = Math.min(12.5, Math.max(0.5, x));
     let pz = Math.min(12.5, Math.max(0.5, z));
     if (this.terrain.solidForTank(Math.floor(px), Math.floor(pz))) {
@@ -815,7 +821,8 @@ export class Game {
   private applyBaseSteel(): void {
     this.shovel = SHOVEL_TIME;
     for (const wall of this.baseWalls) {
-      if (this.terrain.get(wall.x, wall.z)?.kind === 'brick') {
+      const cell = this.terrain.get(wall.x, wall.z);
+      if (cell && (cell.kind === 'brick' || cell.kind === 'empty' || cell.kind === 'steel')) {
         this.terrain.set(wall.x, wall.z, 'steel', 15);
       }
     }

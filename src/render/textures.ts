@@ -163,6 +163,33 @@ export function metalTexture(): THREE.CanvasTexture {
       ctx.stroke();
     }
 
+    // Recessed armor panel border + diagonal hazard stripe trim
+    ctx.strokeStyle = 'rgba(20,24,28,0.55)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(24, 24, size - 48, size - 48);
+    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(27, 27, size - 54, size - 54);
+
+    // Subtle yellow/dark hazard band along bottom plate edge
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(24, size - 34, size - 48, 10);
+    ctx.clip();
+    ctx.fillStyle = '#22262b';
+    ctx.fillRect(24, size - 34, size - 48, 10);
+    ctx.fillStyle = 'rgba(224,164,52,0.55)';
+    for (let sx = 12; sx < size; sx += 20) {
+      ctx.beginPath();
+      ctx.moveTo(sx, size - 24);
+      ctx.lineTo(sx + 10, size - 34);
+      ctx.lineTo(sx + 20, size - 34);
+      ctx.lineTo(sx + 10, size - 24);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+
     // Rivets along the border.
     for (let i = 0; i < 6; i++) {
       for (const [x, y] of [
@@ -241,11 +268,11 @@ export function groundTexture(): THREE.CanvasTexture {
     }
     ctx.restore();
 
-    // Tile seams, soft and slightly broken rather than graph-paper.
+    // Tile seams, concrete slab bevels, and tactical lane markings.
     const step = size / 13;
     for (let i = 0; i <= 13; i++) {
-      ctx.strokeStyle = 'rgba(20,18,15,0.30)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(14,14,12,0.42)';
+      ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(i * step, 0);
       ctx.lineTo(i * step, size);
@@ -255,13 +282,29 @@ export function groundTexture(): THREE.CanvasTexture {
       ctx.lineTo(size, i * step);
       ctx.stroke();
 
-      ctx.strokeStyle = 'rgba(190,182,160,0.05)';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(210,202,182,0.08)';
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(i * step + 2, 0);
-      ctx.lineTo(i * step + 2, size);
+      ctx.moveTo(i * step + 2.5, 0);
+      ctx.lineTo(i * step + 2.5, size);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, i * step + 2.5);
+      ctx.lineTo(size, i * step + 2.5);
       ctx.stroke();
     }
+
+    // Subtle faded tactical stencil markings along center approach & perimeter
+    ctx.save();
+    ctx.strokeStyle = 'rgba(218, 162, 74, 0.14)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([18, 14]);
+    ctx.strokeRect(step * 0.45, step * 0.45, size - step * 0.9, size - step * 0.9);
+    ctx.beginPath();
+    ctx.moveTo(step * 6.5, step * 1.2);
+    ctx.lineTo(step * 6.5, step * 9.5);
+    ctx.stroke();
+    ctx.restore();
 
     // Cracks and scattered debris.
     for (let i = 0; i < 34; i++) {

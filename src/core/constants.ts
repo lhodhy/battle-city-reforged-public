@@ -25,13 +25,14 @@ export const ENEMY_SPAWNS = [
   { x: 12.5, z: 0.5 },
 ];
 
-export const PLAYER_SPEED = 2.35;
+export const PLAYER_SPEED = 2.18;
 export const PLAYER_BULLET_SPEED = 11.5;
 export const PLAYER_BULLET_FAST = 15.5;
-export const PLAYER_RELOAD = 0.32;
-export const PLAYER_RELOAD_STAR3 = 0.25;
+export const PLAYER_RELOAD = 0.44;
+export const PLAYER_RELOAD_STAR2 = 0.35;
+export const PLAYER_RELOAD_STAR3 = 0.27;
 export const COMBO_WINDOW = 3.6;
-export const PLAYER_SHIELD_ON_SPAWN = 3;
+export const PLAYER_SHIELD_ON_SPAWN = 2.2;
 export const SHIELD_TIME = 9;
 export const FREEZE_TIME = 8;
 export const SHOVEL_TIME = 18;
@@ -41,14 +42,14 @@ export const RESPAWN_DELAY = 1.6;
 export const MAX_ENEMIES_1P = 4;
 export const MAX_ENEMIES_2P = 6;
 export const ENEMIES_PER_STAGE = 20;
-export const BONUS_SLOTS = [3, 10];
+export const BONUS_SLOTS = [2, 5, 8, 11, 14, 17];
 export const START_LIVES = 2;
 
 export const ENEMY_STATS = {
-  basic: { speed: 1.55, hp: 1, bullet: 9.5, reload: 1.35, score: 100 },
-  fast: { speed: 3.05, hp: 1, bullet: 9.5, reload: 1.1, score: 200 },
-  power: { speed: 1.8, hp: 1, bullet: 15, reload: 0.62, score: 300 },
-  armor: { speed: 1.7, hp: 4, bullet: 11, reload: 0.82, score: 400 },
+  basic: { speed: 1.65, hp: 1, bullet: 10.0, reload: 1.05, score: 100 },
+  fast: { speed: 3.2, hp: 1, bullet: 10.5, reload: 0.85, score: 200 },
+  power: { speed: 1.95, hp: 1, bullet: 15.5, reload: 0.55, score: 300 },
+  armor: { speed: 1.75, hp: 4, bullet: 11.5, reload: 0.72, score: 400 },
 } as const;
 
 export const COLORS = {
