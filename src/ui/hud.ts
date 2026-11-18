@@ -1,10 +1,11 @@
 import type { Game } from '../core/game';
-import { STAGE_COUNT } from '../core/levels';
+import { STAGE_COUNT, stageTitle } from '../core/levels';
 import type { EnemyKind, GameState, PowerKind } from '../core/types';
 
 interface HudCallbacks {
   getHi: () => number;
   onStart: (mode: 1 | 2) => void;
+  onStageChange?: (stage: number) => void;
 }
 
 const POWER_LABELS: Record<PowerKind, string> = {
@@ -50,6 +51,11 @@ export class Hud {
   private finalBest: HTMLElement;
   private bannerNum: HTMLElement;
   private bannerSub: HTMLElement;
+  private popupsEl: HTMLElement;
+  private titleStageNum: HTMLElement;
+  private titleStageName: HTMLElement;
+  private stagePrev: HTMLElement;
+  private stageNext: HTMLElement;
   private flashEl: HTMLElement;
 
   private lastState: GameState | null = null;
@@ -92,6 +98,11 @@ export class Hud {
     this.finalBest = $('finalBest');
     this.bannerNum = $('bannerNum');
     this.bannerSub = $('bannerSub');
+    this.popupsEl = $('popups');
+    this.titleStageNum = $('titleStageNum');
+    this.titleStageName = $('titleStageName');
+    this.stagePrev = $('stagePrev');
+    this.stageNext = $('stageNext');
 
     this.flashEl = document.createElement('div');
     this.flashEl.id = 'hudFlash';
@@ -99,6 +110,7 @@ export class Hud {
 
     this.buildEnemyTrack();
     this.bindMenu();
+    this.syncStagePicker();
     window.addEventListener('resize', () => this.updateRotateHint());
     this.updateRotateHint();
   }
@@ -112,10 +124,28 @@ export class Hud {
         this.callbacks.onStart(mode);
       });
     }
+    this.stagePrev.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.game.setStartStage(this.game.selectedStage - 1);
+      this.syncStagePicker();
+      this.callbacks.onStageChange?.(this.game.selectedStage);
+    });
+    this.stageNext.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.game.setStartStage(this.game.selectedStage + 1);
+      this.syncStagePicker();
+      this.callbacks.onStageChange?.(this.game.selectedStage);
+    });
     this.titleScreen.addEventListener('click', (event) => {
-      if ((event.target as HTMLElement).closest('.menu-item')) return;
+      if ((event.target as HTMLElement).closest('.menu-item, .stage-picker')) return;
       this.callbacks.onStart(1);
     });
+  }
+
+  syncStagePicker(): void {
+    const stage = this.game.selectedStage;
+    this.titleStageNum.textContent = String(stage).padStart(2, '0');
+    this.titleStageName.textContent = stageTitle(stage);
   }
 
   private buildEnemyTrack(): void {
@@ -147,10 +177,11 @@ export class Hud {
 
   onStageStart(game: Game): void {
     this.hideOverlays();
+    this.popupsEl.innerHTML = '';
     this.titleScreen.classList.add('hidden');
     this.root.classList.remove('hidden');
     this.bannerNum.textContent = String(game.stage).padStart(2, '0');
-    this.bannerSub.textContent = game.stage > STAGE_COUNT ? 'WAR WITHOUT END' : stageSubtitle(game.stage);
+    this.bannerSub.textContent = game.stage > STAGE_COUNT ? 'WAR WITHOUT END' : stageTitle(game.stage);
     this.stageBanner.classList.remove('hidden');
     this.stageBanner.classList.remove('animate');
     void this.stageBanner.offsetWidth;
@@ -176,6 +207,8 @@ export class Hud {
         this.root.classList.add('hidden');
         this.hideOverlays();
         this.clearTally.innerHTML = '';
+        this.popupsEl.innerHTML = '';
+        this.syncStagePicker();
         break;
       case 'intro':
         this.hideOverlays();
@@ -242,6 +275,22 @@ export class Hud {
     this.showToast(POWER_LABELS[kind] ?? 'POWER UP', '#ffc46a');
   }
 
+  spawnPopup(x: number, y: number, text: string, color = '#ffd28a', big = false): void {
+    if (this.popupsEl.childElementCount > 18) {
+      this.popupsEl.firstElementChild?.remove();
+    }
+    const el = document.createElement('div');
+    el.className = big ? 'score-popup big' : 'score-popup';
+    el.textContent = text;
+    el.style.left = `${Math.round(x)}px`;
+    el.style.top = `${Math.round(y)}px`;
+    el.style.setProperty('--pop-color', color);
+    const cleanup = () => el.remove();
+    el.addEventListener('animationend', cleanup, { once: true });
+    window.setTimeout(cleanup, 900);
+    this.popupsEl.appendChild(el);
+  }
+
   update(game: Game): void {
     this.syncState(game);
 
@@ -306,20 +355,4 @@ function renderStars(stars: number): string {
   let html = '';
   for (let i = 0; i < 3; i++) html += `<i class="pip${i < stars ? ' on' : ''}"></i>`;
   return html;
-}
-
-function stageSubtitle(stage: number): string {
-  const titles = [
-    'DEFEND THE EAGLE',
-    'TWIN KEEPS',
-    'RESERVOIR',
-    'BLACK ICE',
-    'THE GAUNTLET',
-    'OVERGROWTH',
-    'RIVER CROSSING',
-    'CITADEL',
-    'COLD FRONT',
-    'IRONWORKS',
-  ];
-  return titles[(stage - 1) % titles.length];
 }

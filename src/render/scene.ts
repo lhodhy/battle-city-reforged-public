@@ -7,6 +7,8 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { FIELD, PLAYER_SPAWNS } from '../core/constants';
 import type { Game } from '../core/game';
+import { getStageMap } from '../core/levels';
+import { Terrain } from '../core/terrain';
 import type { GameEvent, Tank } from '../core/types';
 import { Effects } from './effects';
 import { BulletVisual, POWER_COLORS, PowerUpVisual, TankVisual } from './models';
@@ -37,6 +39,7 @@ const GRADE_SHADER = {
     tDiffuse: { value: null },
     uTime: { value: 0 },
     uFlash: { value: 0 },
+    uFreeze: { value: 0 },
     uFlashColor: { value: new THREE.Color(0xffa050) },
     uResolution: { value: new THREE.Vector2(1, 1) },
   },
@@ -51,6 +54,7 @@ const GRADE_SHADER = {
     uniform sampler2D tDiffuse;
     uniform float uTime;
     uniform float uFlash;
+    uniform float uFreeze;
     uniform vec3 uFlashColor;
     uniform vec2 uResolution;
     varying vec2 vUv;
@@ -83,6 +87,14 @@ const GRADE_SHADER = {
       vec3 shadowTint = vec3(0.86, 0.95, 1.08);
       vec3 highTint = vec3(1.07, 1.0, 0.93);
       color *= mix(shadowTint, highTint, smoothstep(0.04, 0.62, lum));
+
+      if (uFreeze > 0.001) {
+        float frostEdge = smoothstep(0.28, 0.88, d);
+        vec3 iceColor = vec3(0.56, 0.85, 1.0);
+        float lumF = dot(color, vec3(0.2126, 0.7152, 0.0722));
+        color = mix(color, mix(vec3(lumF), color, 0.72) * vec3(0.88, 0.97, 1.12), uFreeze * 0.6);
+        color += iceColor * (frostEdge * uFreeze * 0.24);
+      }
 
       color = pow(max(color, 0.0), vec3(0.985, 1.0, 1.02));
       color += uFlashColor * uFlash;
@@ -136,6 +148,8 @@ export class SceneView {
   private time = 0;
   private titleMode = true;
   private tankVisuals = new Map<string, TankVisual>();
+  private tankTreadTimers = new Map<string, number>();
+  private tankSmokeTimers = new Map<string, number>();
   private bulletVisuals = new Map<number, BulletVisual>();
   private bulletTrails = new Map<number, number>();
   private powerupVisual: PowerUpVisual | null = null;
@@ -155,9 +169,17 @@ export class SceneView {
     ambient: THREE.AmbientLight;
   } | null = null;
   private lightning = 0;
+  private lastStrike = 0;
+  private pendingThunder = false;
   private baseKeyIntensity = 4.1;
   private cameraDir = new THREE.Vector3(0, 0.62, 0.785).normalize();
   private cameraTarget = new THREE.Vector3(FIELD / 2, 0, 6.8);
+  private cameraLead = new THREE.Vector2(0, 0);
+  private projVec = new THREE.Vector3();
+  private camAxisY = new THREE.Vector3(0, 1, 0);
+  private camDirTmp = new THREE.Vector3();
+  private camTargetTmp = new THREE.Vector3();
+  private camPosTmp = new THREE.Vector3();
   private cameraDistance = 16.4;
   private inspectTarget: { x: number; z: number; distance: number } | null = null;
 
@@ -367,10 +389,34 @@ export class SceneView {
 
   showTitle(game: Game): void {
     this.titleMode = true;
-    this.stage.build(game.terrain, 1, true);
-    this.applyAtmosphere(weatherForStage(1));
+    this.stage.build(game.terrain, game.selectedStage, true);
+    this.applyAtmosphere(weatherForStage(game.selectedStage));
     this.clearVisuals();
     this.createDemoTanks();
+  }
+
+  previewStage(stage: number): void {
+    if (!this.titleMode) return;
+    this.stage.build(new Terrain(getStageMap(stage)), stage, true);
+    this.applyAtmosphere(weatherForStage(stage));
+  }
+
+  consumeThunder(): boolean {
+    const had = this.pendingThunder;
+    this.pendingThunder = false;
+    return had;
+  }
+
+  projectToScreen(x: number, y: number, z: number): { x: number; y: number; visible: boolean } {
+    this.projVec.set(x, y, z).project(this.camera);
+    const visible = this.projVec.z >= -1 && this.projVec.z <= 1;
+    const width = this.canvas.clientWidth || window.innerWidth;
+    const height = this.canvas.clientHeight || window.innerHeight;
+    return {
+      x: (this.projVec.x * 0.5 + 0.5) * width,
+      y: (-this.projVec.y * 0.5 + 0.5) * height,
+      visible,
+    };
   }
 
   startGame(): void {
@@ -496,7 +542,10 @@ export class SceneView {
       case 'tankHit':
         this.effects.impact(event.x + 0.0, event.z, 0, 0xffe0a0);
         this.effects.dust(event.x, event.z, 1);
-        this.effects.shake(0.04);
+        this.effects.shake(0.05);
+        break;
+      case 'iceSlide':
+        this.effects.impact(event.x, event.z, 0, 0xbfeaff);
         break;
       case 'tankDestroyed': {
         const big = event.team === 'player' ? 1.5 : 1;
@@ -548,15 +597,23 @@ export class SceneView {
 
     const strike = this.weather.update(dt);
     if (strike > 0) {
+      if (strike > 0.85 && this.lastStrike < 0.5) {
+        this.pendingThunder = true;
+      }
       this.lightning = Math.max(this.lightning, strike * 0.55);
       this.flash(0.16 * strike, 0xbcd8ff);
     }
+    this.lastStrike = strike;
     if (this.lightning > 0) {
       this.lightning = Math.max(0, this.lightning - dt * 3.4);
     }
     if (this.lights) {
       this.lights.key.intensity = this.baseKeyIntensity + this.lightning * 6;
     }
+
+    const targetFreeze = game.freeze > 0 ? Math.min(1, game.freeze / 1.5) : 0;
+    const currentFreeze = this.gradePass.uniforms.uFreeze.value as number;
+    this.gradePass.uniforms.uFreeze.value = currentFreeze + (targetFreeze - currentFreeze) * Math.min(1, dt * 6);
 
     const flash = this.gradePass.uniforms.uFlash.value as number;
     this.gradePass.uniforms.uFlash.value = Math.max(0, flash - dt * 1.6);
@@ -579,12 +636,31 @@ export class SceneView {
     this.syncTanks(game, dt);
     this.syncBullets(game, dt);
     this.syncPowerup(game);
+    this.updateCameraLead(game, dt);
     this.animateAtmosphere(dt);
     this.updateCamera(dt);
   }
 
+  private updateCameraLead(game: Game, dt: number): void {
+    const players = game.playerTanks();
+    let goalX = 0;
+    let goalZ = 0;
+    if (players.length > 0) {
+      for (const p of players) {
+        goalX += p.x;
+        goalZ += p.z;
+      }
+      goalX = THREE.MathUtils.clamp((goalX / players.length - FIELD / 2) * 0.04, -0.25, 0.25);
+      goalZ = THREE.MathUtils.clamp((goalZ / players.length - 6.8) * 0.04, -0.25, 0.25);
+    }
+    const blend = Math.min(1, dt * 3.5);
+    this.cameraLead.x += (goalX - this.cameraLead.x) * blend;
+    this.cameraLead.y += (goalZ - this.cameraLead.y) * blend;
+  }
+
   private syncTanks(game: Game, dt: number): void {
     const seen = new Set<string>();
+    const frozen = game.freeze > 0;
     for (const tank of game.tanks) {
       if (!tank.alive) continue;
       seen.add(tank.id);
@@ -595,12 +671,43 @@ export class SceneView {
         this.scene.add(visual.group);
         if (tank.team === 'enemy') this.effects.spawnBeam(tank.x, tank.z, 0xff7a52);
       }
-      visual.update(tank, this.time, dt);
+      visual.update(tank, this.time, dt, frozen);
+
+      if (tank.spawn <= 0 && tank.moving > 0.15) {
+        const timer = (this.tankTreadTimers.get(tank.id) ?? 0) + dt * tank.moving;
+        if (timer >= 0.11) {
+          this.tankTreadTimers.set(tank.id, 0);
+          const onIce = game.terrain.isOnIce(Math.floor(tank.x), Math.floor(tank.z));
+          this.effects.tread(tank.x, tank.z, tank.dir, onIce);
+        } else {
+          this.tankTreadTimers.set(tank.id, timer);
+        }
+      }
+
+      if (tank.hp < tank.maxHp && tank.spawn <= 0) {
+        const smokeTimer = (this.tankSmokeTimers.get(tank.id) ?? 0) + dt;
+        const interval = Math.max(0.09, 0.22 - (tank.maxHp - tank.hp) * 0.04);
+        if (smokeTimer >= interval) {
+          this.tankSmokeTimers.set(tank.id, 0);
+          this.effects.dust(tank.x, tank.z, 1);
+          if (tank.hp === 1) {
+            this.effects.trail(
+              tank.x + (Math.random() - 0.5) * 0.25,
+              tank.z + (Math.random() - 0.5) * 0.25,
+              0xff7a2a,
+            );
+          }
+        } else {
+          this.tankSmokeTimers.set(tank.id, smokeTimer);
+        }
+      }
     }
     for (const [id, visual] of this.tankVisuals) {
       if (!seen.has(id)) {
         visual.dispose();
         this.tankVisuals.delete(id);
+        this.tankTreadTimers.delete(id);
+        this.tankSmokeTimers.delete(id);
       }
     }
   }
@@ -681,13 +788,20 @@ export class SceneView {
       return;
     }
     const drift = this.titleMode ? Math.sin(this.time * 0.12) * 0.16 : Math.sin(this.time * 0.05) * 0.012;
-    const dir = this.cameraDir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), drift);
-    const target = this.cameraTarget.clone();
-    if (this.titleMode) target.y = 0.3;
-    const position = target.clone().addScaledVector(dir, this.cameraDistance + (this.titleMode ? 0.8 : 0));
+    this.camDirTmp.copy(this.cameraDir).applyAxisAngle(this.camAxisY, drift);
+    this.camTargetTmp.copy(this.cameraTarget);
+    if (this.titleMode) {
+      this.camTargetTmp.y = 0.3;
+    } else {
+      this.camTargetTmp.x += this.cameraLead.x;
+      this.camTargetTmp.z += this.cameraLead.y;
+    }
+    this.camPosTmp
+      .copy(this.camTargetTmp)
+      .addScaledVector(this.camDirTmp, this.cameraDistance + (this.titleMode ? 0.8 : 0));
     const shake = this.effects.getShakeOffset(this.time);
-    this.camera.position.set(position.x + shake.x, position.y + shake.y, position.z + shake.z);
-    this.camera.lookAt(target);
+    this.camera.position.set(this.camPosTmp.x + shake.x, this.camPosTmp.y + shake.y, this.camPosTmp.z + shake.z);
+    this.camera.lookAt(this.camTargetTmp);
     this.camera.rotateZ(shake.roll + (this.titleMode ? Math.sin(this.time * 0.09) * 0.002 : 0));
     void dt;
   }
@@ -695,6 +809,8 @@ export class SceneView {
   private clearVisuals(): void {
     for (const visual of this.tankVisuals.values()) visual.dispose();
     this.tankVisuals.clear();
+    this.tankTreadTimers.clear();
+    this.tankSmokeTimers.clear();
     for (const visual of this.bulletVisuals.values()) visual.dispose();
     this.bulletVisuals.clear();
     this.bulletTrails.clear();

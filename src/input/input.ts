@@ -1,7 +1,7 @@
 import { DIRS } from '../core/constants';
 import type { Dir, PlayerInput } from '../core/types';
 
-type Action = 'start' | 'pause' | 'mute' | 'retry' | 'one' | 'two';
+type Action = 'start' | 'pause' | 'mute' | 'retry' | 'one' | 'two' | 'prevStage' | 'nextStage';
 
 const P1_KEYS: Record<string, Dir> = {
   ArrowUp: 0,
@@ -74,6 +74,14 @@ export class InputManager {
         break;
       case 'Digit2':
         this.onAction?.('two');
+        break;
+      case 'BracketLeft':
+      case 'ArrowLeft':
+        this.onAction?.('prevStage');
+        break;
+      case 'BracketRight':
+      case 'ArrowRight':
+        this.onAction?.('nextStage');
         break;
     }
   }

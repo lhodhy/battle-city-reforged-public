@@ -25,6 +25,10 @@ const hud = new Hud(game, {
   onStart: (mode) => {
     void startRun(mode);
   },
+  onStageChange: (stage) => {
+    audio.sfx('click');
+    view.previewStage(stage);
+  },
 });
 
 function saveHi(): void {
@@ -41,6 +45,7 @@ function saveHi(): void {
 async function startRun(mode: 1 | 2): Promise<void> {
   await audio.resume();
   view.startGame();
+  audio.setStageTrack(game.selectedStage);
   audio.setMusic('stage');
   audio.sfx('start');
   game.start(mode);
@@ -83,6 +88,22 @@ input.onAction = (action) => {
         void startRun(game.mode);
       }
       break;
+    case 'prevStage':
+      if (game.state === 'title') {
+        game.setStartStage(game.selectedStage - 1);
+        hud.syncStagePicker();
+        audio.sfx('click');
+        view.previewStage(game.selectedStage);
+      }
+      break;
+    case 'nextStage':
+      if (game.state === 'title') {
+        game.setStartStage(game.selectedStage + 1);
+        hud.syncStagePicker();
+        audio.sfx('click');
+        view.previewStage(game.selectedStage);
+      }
+      break;
   }
 };
 
@@ -104,6 +125,8 @@ function dispatch(event: ReturnType<Game['drainEvents']>[number]): void {
   switch (event.type) {
     case 'stageStart':
       hud.onStageStart(game);
+      audio.setStageTrack(game.stage);
+      audio.setMusic('stage');
       audio.sfx('start');
       break;
     case 'shoot':
@@ -113,12 +136,27 @@ function dispatch(event: ReturnType<Game['drainEvents']>[number]): void {
       audio.sfx('brick');
       break;
     case 'steelHit':
-    case 'steelBreak':
+      audio.sfx('ricochet');
       audio.sfx('steel');
       break;
-    case 'tankHit':
-      audio.sfx('hit');
+    case 'steelBreak':
+      audio.sfx('steelBreak');
       break;
+    case 'tankHit':
+      audio.sfx('armorHit');
+      break;
+    case 'iceSlide':
+      audio.sfx('ice');
+      break;
+    case 'combo': {
+      audio.sfx('combo');
+      const pt = view.projectToScreen(event.x, 0.85, event.z);
+      if (pt.visible) {
+        hud.spawnPopup(pt.x, pt.y, `${event.count}× CHAIN +${event.bonus}`, '#ff9e44', true);
+      }
+      hud.showToast(`${event.count}× KILL CHAIN!`, '#ff9e44');
+      break;
+    }
     case 'tankDestroyed':
       audio.sfx(event.team === 'player' ? 'bigExplode' : 'explode');
       break;
@@ -165,9 +203,16 @@ function dispatch(event: ReturnType<Game['drainEvents']>[number]): void {
       audio.setMusic('none');
       saveHi();
       break;
-    case 'score':
+    case 'score': {
       if (game.totalScore > hiScore) saveHi();
+      if (event.amount > 0 && (event.x !== 0 || event.z !== 0)) {
+        const pt = view.projectToScreen(event.x, 0.55, event.z);
+        if (pt.visible) {
+          hud.spawnPopup(pt.x, pt.y, `+${event.amount}`, event.player === 1 ? '#6fe0c0' : '#ffd28a');
+        }
+      }
       break;
+    }
     default:
       break;
   }
@@ -199,6 +244,11 @@ function frame(now: number): void {
 
   hud.update(game);
   view.sync(game, dt);
+  if (view.consumeThunder()) audio.sfx('thunder');
+  audio.setMusicState(
+    game.freeze > 0,
+    game.state === 'playing' && game.enemiesRemaining > 0 && game.enemiesRemaining <= 3,
+  );
   view.render();
 
   const engine = game.state === 'playing' ? Math.max(0.12, game.playerSpeed) : 0;
@@ -225,7 +275,10 @@ requestAnimationFrame(frame);
   hud,
   input,
   dispatch,
-  start: (mode: 1 | 2 = 1) => startRun(mode),
+  start: (mode: 1 | 2 = 1, stage?: number) => {
+    if (stage !== undefined) game.setStartStage(stage);
+    return startRun(mode);
+  },
   advance: (seconds: number) => {
     for (let i = 0; i < seconds * 60; i++) game.update(1 / 60, input.getPlayers(game.mode));
     for (const event of game.drainEvents()) dispatch(event);

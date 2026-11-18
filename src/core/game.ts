@@ -1,15 +1,18 @@
 import {
   BONUS_SLOTS,
+  COMBO_WINDOW,
   DIRS,
   ENEMIES_PER_STAGE,
   ENEMY_SPAWNS,
   ENEMY_STATS,
   FREEZE_TIME,
+  GRID,
   MAX_ENEMIES_1P,
   MAX_ENEMIES_2P,
   PLAYER_BULLET_FAST,
   PLAYER_BULLET_SPEED,
   PLAYER_RELOAD,
+  PLAYER_RELOAD_STAR3,
   PLAYER_SHIELD_ON_SPAWN,
   PLAYER_SPAWNS,
   PLAYER_SPEED,
@@ -56,6 +59,7 @@ export class Game {
   state: GameState = 'title';
   mode: 1 | 2 = 1;
   stage = 1;
+  selectedStage = 1;
   loop = 0;
   seed: number;
   rng: Rng;
@@ -68,6 +72,8 @@ export class Game {
   lives = [START_LIVES, START_LIVES];
   playerStar = [0, 0];
   out = [false, false];
+  comboCount = [0, 0];
+  comboTimer = [0, 0];
   private respawnTimers = [0, 0];
 
   spawnQueue: EnemyKind[] = [];
@@ -94,14 +100,22 @@ export class Game {
     this.terrain = new Terrain(getStageMap(1));
   }
 
-  start(mode: 1 | 2): void {
+  setStartStage(stage: number): void {
+    const wrapped = ((Math.floor(stage) - 1) % STAGE_COUNT + STAGE_COUNT) % STAGE_COUNT + 1;
+    this.selectedStage = wrapped;
+  }
+
+  start(mode: 1 | 2, startStage?: number): void {
     this.mode = mode;
-    this.stage = 1;
+    const requested = startStage ?? this.selectedStage ?? 1;
+    this.stage = Math.max(1, Math.min(STAGE_COUNT, Math.floor(requested)));
     this.loop = 0;
     this.score = [0, 0];
     this.lives = [START_LIVES, START_LIVES];
     this.playerStar = [0, 0];
     this.out = [false, false];
+    this.comboCount = [0, 0];
+    this.comboTimer = [0, 0];
     this.respawnTimers = [0, 0];
     this.beginStage();
   }
@@ -124,6 +138,8 @@ export class Game {
     this.spawnTimer = 0.8;
     this.stageStartScore = this.score[0] + this.score[1];
     this.tally = { basic: 0, fast: 0, power: 0, armor: 0 };
+    this.comboCount = [0, 0];
+    this.comboTimer = [0, 0];
     this.playerMoving = 0;
 
     for (let p = 0; p < this.mode; p++) {
@@ -185,6 +201,12 @@ export class Game {
     if (this.shovel > 0) {
       this.shovel = Math.max(0, this.shovel - dt);
       if (this.shovel === 0) this.restoreBaseWalls();
+    }
+    for (let p = 0; p < 2; p++) {
+      if (this.comboTimer[p] > 0) {
+        this.comboTimer[p] = Math.max(0, this.comboTimer[p] - dt);
+        if (this.comboTimer[p] === 0) this.comboCount[p] = 0;
+      }
     }
 
     this.updateRespawns(dt);
@@ -325,7 +347,9 @@ export class Game {
     const base = { x: BASE_CENTER.x, z: BASE_CENTER.z };
     let target = base;
     const players = this.playerTanks();
-    if (players.length && this.rng.chance(0.42)) {
+    const huntBias =
+      tank.kind === 'power' ? 0.62 : tank.kind === 'fast' ? 0.32 : tank.kind === 'armor' ? 0.3 : 0.42;
+    if (players.length && this.rng.chance(huntBias)) {
       players.sort((a, b) => Math.hypot(a.x - tank.x, a.z - tank.z) - Math.hypot(b.x - tank.x, b.z - tank.z));
       target = players[0];
     }
@@ -366,13 +390,14 @@ export class Game {
       return;
     }
     const targets: Array<{ x: number; z: number }> = [{ x: BASE_CENTER.x, z: BASE_CENTER.z }, ...this.playerTanks()];
+    const tol = tank.kind === 'power' ? 0.52 : 0.42;
     for (const target of targets) {
       const dx = target.x - tank.x;
       const dz = target.z - tank.z;
       const v = dirVector(tank.dir);
       const aligned =
-        (v.x !== 0 && Math.abs(dx) > Math.abs(dz) && Math.abs(dz) < 0.42 && Math.sign(dx) === Math.sign(v.x)) ||
-        (v.z !== 0 && Math.abs(dz) > Math.abs(dx) && Math.abs(dx) < 0.42 && Math.sign(dz) === Math.sign(v.z));
+        (v.x !== 0 && Math.abs(dx) > Math.abs(dz) && Math.abs(dz) < tol && Math.sign(dx) === Math.sign(v.x)) ||
+        (v.z !== 0 && Math.abs(dz) > Math.abs(dx) && Math.abs(dx) < tol && Math.sign(dz) === Math.sign(v.z));
       if (aligned) {
         this.tryFire(tank);
         return;
@@ -385,6 +410,9 @@ export class Game {
     const onIce = this.terrain.isOnIce(Math.floor(tank.x), Math.floor(tank.z));
     if (dir !== null) {
       if (dir !== tank.dir) {
+        if (onIce && Math.hypot(tank.iceX, tank.iceZ) > 0.8) {
+          this.emit({ type: 'iceSlide', x: tank.x, z: tank.z, team: tank.team });
+        }
         tank.dir = dir;
         const v = dirVector(dir);
         if (v.x === 0) {
@@ -469,7 +497,12 @@ export class Game {
       power,
       dead: false,
     });
-    tank.cooldown = tank.team === 'player' ? PLAYER_RELOAD : ENEMY_STATS[tank.kind as EnemyKind].reload;
+    tank.cooldown =
+      tank.team === 'player'
+        ? tank.star >= 3
+          ? PLAYER_RELOAD_STAR3
+          : PLAYER_RELOAD
+        : ENEMY_STATS[tank.kind as EnemyKind].reload;
     tank.recoil = 1;
     this.emit({ type: 'shoot', x, z, dir: tank.dir, team: tank.team, owner: tank.id, power });
   }
@@ -633,7 +666,7 @@ export class Game {
     tank.hp -= 1;
     if (tank.hp > 0) {
       tank.hitFlash = 0.16;
-      this.emit({ type: 'tankHit', x: tank.x, z: tank.z, team: tank.team, kind: tank.kind, hp: tank.hp });
+      this.emit({ type: 'tankHit', x: tank.x, z: tank.z, team: tank.team, kind: tank.kind, hp: tank.hp, maxHp: tank.maxHp });
       return;
     }
     const player = bullet.owner.startsWith('p') ? Number(bullet.owner.slice(1)) : null;
@@ -649,6 +682,15 @@ export class Game {
     const stats = ENEMY_STATS[kind];
     if (player !== null && player >= 0) {
       this.addScore(player, stats.score, tank.x, tank.z);
+      if (!byPowerup) {
+        this.comboCount[player] = this.comboTimer[player] > 0 ? this.comboCount[player] + 1 : 1;
+        this.comboTimer[player] = COMBO_WINDOW;
+        if (this.comboCount[player] >= 2) {
+          const bonus = Math.min(4, this.comboCount[player] - 1) * 100;
+          this.addScore(player, bonus, tank.x, tank.z);
+          this.emit({ type: 'combo', player, count: this.comboCount[player], bonus, x: tank.x, z: tank.z });
+        }
+      }
     }
     this.emit({
       type: 'tankDestroyed',
@@ -661,7 +703,6 @@ export class Game {
     if (tank.bonus) {
       this.dropPowerup(tank.x, tank.z);
     }
-    void byPowerup;
   }
 
   private destroyPlayer(tank: Tank): void {
@@ -670,6 +711,8 @@ export class Game {
     this.tanks = this.tanks.filter((t) => t !== tank);
     const p = tank.playerIndex;
     this.playerStar[p] = 0;
+    this.comboCount[p] = 0;
+    this.comboTimer[p] = 0;
     this.emit({ type: 'tankDestroyed', x: tank.x, z: tank.z, team: 'player', kind: 'player', bonus: false });
 
     if (this.lives[p] > 0) {
@@ -686,10 +729,28 @@ export class Game {
   }
 
   private dropPowerup(x: number, z: number): void {
-    if (this.powerup) return;
     const kind = this.rng.pick(POWER_KINDS);
-    const px = Math.min(12.5, Math.max(0.5, x));
-    const pz = Math.min(12.5, Math.max(0.5, z));
+    let px = Math.min(12.5, Math.max(0.5, x));
+    let pz = Math.min(12.5, Math.max(0.5, z));
+    if (this.terrain.solidForTank(Math.floor(px), Math.floor(pz))) {
+      const originX = Math.floor(px);
+      const originZ = Math.floor(pz);
+      let found = false;
+      for (let radius = 1; radius <= 4 && !found; radius++) {
+        for (let dz = -radius; dz <= radius && !found; dz++) {
+          for (let dx = -radius; dx <= radius && !found; dx++) {
+            const cx = originX + dx;
+            const cz = originZ + dz;
+            if (cx < 0 || cz < 0 || cx >= GRID || cz >= GRID) continue;
+            if (!this.terrain.solidForTank(cx, cz)) {
+              px = cx + 0.5;
+              pz = cz + 0.5;
+              found = true;
+            }
+          }
+        }
+      }
+    }
     this.powerup = { kind, x: px, z: pz, life: POWERUP_LIFE, age: 0 };
     this.emit({ type: 'powerupSpawn', x: px, z: pz, kind });
   }

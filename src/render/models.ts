@@ -30,12 +30,24 @@ interface GeoPool {
   beacon: THREE.BufferGeometry;
   markerPlate: THREE.BufferGeometry;
   markerQuad: THREE.BufferGeometry;
+  shieldSphere: THREE.BufferGeometry;
+  bandSmall: THREE.BufferGeometry;
+  bandBig: THREE.BufferGeometry;
+  bulletCore: THREE.BufferGeometry;
+  bulletTrail: THREE.BufferGeometry;
+  headlightBeam: THREE.BufferGeometry;
+  starChevron: THREE.BufferGeometry;
+  starBarrelExt: THREE.BufferGeometry;
 }
 
 let geo: GeoPool | null = null;
 
 function geometries(): GeoPool {
   if (geo) return geo;
+  const headlightBeam = new THREE.ConeGeometry(0.22, 1.35, 12, 1, true);
+  headlightBeam.rotateX(Math.PI / 2);
+  headlightBeam.translate(0, 0, -1.35 / 2);
+
   geo = {
     hull: new RoundedBoxGeometry(0.62, 0.2, 0.76, 3, 0.045),
     hullFast: new RoundedBoxGeometry(0.56, 0.17, 0.84, 3, 0.05),
@@ -43,7 +55,7 @@ function geometries(): GeoPool {
     glacis: new RoundedBoxGeometry(0.52, 0.14, 0.4, 2, 0.04),
     glacisLong: new RoundedBoxGeometry(0.5, 0.1, 0.46, 2, 0.03),
     track: new RoundedBoxGeometry(0.15, 0.24, 0.82, 2, 0.045),
-    wheel: new THREE.CylinderGeometry(0.08, 0.08, 0.03, 12),
+    wheel: new THREE.CylinderGeometry(0.08, 0.08, 0.03, 10),
     turret: new THREE.CylinderGeometry(0.2, 0.23, 0.13, 16),
     turretBig: new THREE.CylinderGeometry(0.23, 0.26, 0.16, 16),
     turretTop: new RoundedBoxGeometry(0.32, 0.1, 0.34, 2, 0.035),
@@ -60,6 +72,14 @@ function geometries(): GeoPool {
     beacon: new THREE.SphereGeometry(0.048, 10, 8),
     markerPlate: new THREE.CylinderGeometry(0.1, 0.1, 0.018, 20),
     markerQuad: new THREE.PlaneGeometry(0.16, 0.16),
+    shieldSphere: new THREE.SphereGeometry(0.55, 24, 16),
+    bandSmall: new THREE.TorusGeometry(0.232, 0.011, 6, 28),
+    bandBig: new THREE.TorusGeometry(0.252, 0.011, 6, 28),
+    bulletCore: new THREE.CapsuleGeometry(0.038, 0.11, 4, 8),
+    bulletTrail: new THREE.PlaneGeometry(0.09, 0.5),
+    headlightBeam,
+    starChevron: new THREE.BoxGeometry(0.08, 0.03, 0.08),
+    starBarrelExt: new THREE.CylinderGeometry(0.035, 0.04, 0.22, 10),
   };
   return geo;
 }
@@ -94,8 +114,16 @@ function numberTexture(label: string, color: string): THREE.CanvasTexture {
   return texture;
 }
 
+const ARMOR_HP_COLORS: Record<number, number> = {
+  4: 0x7d9a55,
+  3: 0xb59b4c,
+  2: 0x8c9aa6,
+  1: 0xc45a45,
+};
+
 export class TankVisual {
   readonly group = new THREE.Group();
+  readonly body = new THREE.Group();
   readonly barrel = new THREE.Group();
   readonly shield: THREE.Mesh;
   readonly shieldMat: THREE.ShaderMaterial;
@@ -104,6 +132,10 @@ export class TankVisual {
   private accentMat: THREE.MeshStandardMaterial;
   private trackMats: THREE.MeshStandardMaterial[] = [];
   private materials: THREE.Material[] = [];
+  private wheels: THREE.Mesh[] = [];
+  private star1Parts: THREE.Object3D[] = [];
+  private star2Parts: THREE.Object3D[] = [];
+  private star3Parts: THREE.Object3D[] = [];
   private beaconMat: THREE.MeshStandardMaterial | null = null;
   private trackOffset = 0;
   private kind: string;
@@ -111,12 +143,12 @@ export class TankVisual {
   private baseEmissive: number;
   private wheelSpin = 0;
   private marker: THREE.Mesh | null = null;
-  private bandGeo: THREE.TorusGeometry;
   private baseScale = 1.22;
 
   constructor(kind: string, team: string, playerIndex: number, bonus: boolean) {
     this.kind = kind;
     this.team = team;
+    this.group.add(this.body);
     const color = tankColor(kind, team, playerIndex);
     const g = geometries();
 
@@ -160,12 +192,12 @@ export class TankVisual {
     // Hull and glacis: heavy tanks are wider, racers sit lower and longer.
     const hull = new THREE.Mesh(heavy ? g.hullHeavy : racer ? g.hullFast : g.hull, this.hullMat);
     hull.position.y = racer ? 0.19 : heavy ? 0.22 : 0.21;
-    this.group.add(hull);
+    this.body.add(hull);
 
     const glacis = new THREE.Mesh(racer ? g.glacisLong : g.glacis, this.hullMat);
     glacis.position.set(0, racer ? 0.3 : 0.33, -0.14);
     glacis.rotation.x = racer ? -0.3 : -0.18;
-    this.group.add(glacis);
+    this.body.add(glacis);
 
     const trackX = heavy ? 0.355 : racer ? 0.295 : 0.325;
     const wheelCount = heavy ? 5 : racer ? 3 : 4;
@@ -173,7 +205,7 @@ export class TankVisual {
       const track = new THREE.Mesh(g.track, this.trackMats[side < 0 ? 0 : 1]);
       track.position.set(side * trackX, racer ? 0.125 : 0.14, 0.01);
       track.scale.set(heavy ? 1.15 : racer ? 0.88 : 1, heavy ? 1.06 : racer ? 0.92 : 1, racer ? 1.08 : 1);
-      this.group.add(track);
+      this.body.add(track);
 
       for (let i = 0; i < wheelCount; i++) {
         const wheel = new THREE.Mesh(g.wheel, darkMetal);
@@ -181,7 +213,8 @@ export class TankVisual {
         const spread = wheelCount > 4 ? 0.58 : wheelCount > 3 ? 0.51 : 0.4;
         const offset = (-spread / 2 + (i / (wheelCount - 1)) * spread);
         wheel.position.set(side * (trackX + 0.078), racer ? 0.085 : 0.09, offset);
-        this.group.add(wheel);
+        this.body.add(wheel);
+        this.wheels.push(wheel);
       }
     }
 
@@ -190,46 +223,45 @@ export class TankVisual {
       for (const side of [-1, 1]) {
         const skirt = new THREE.Mesh(g.skirt, this.hullMat);
         skirt.position.set(side * 0.365, 0.3, 0.02);
-        this.group.add(skirt);
+        this.body.add(skirt);
       }
       const dozer = new THREE.Mesh(g.dozer, darkMetal);
       dozer.position.set(0, 0.19, -0.44);
       dozer.rotation.x = 0.32;
-      this.group.add(dozer);
+      this.body.add(dozer);
     }
 
     const turretRing = new THREE.Mesh(g.wheel, darkMetal);
     turretRing.rotation.z = 0;
     turretRing.scale.set(heavy ? 3.4 : assault ? 3.1 : 2.9, 0.7, heavy ? 3.4 : assault ? 3.1 : 2.9);
     turretRing.position.y = 0.38;
-    this.group.add(turretRing);
+    this.body.add(turretRing);
 
     const turret = new THREE.Mesh(assault ? g.turretBig : g.turret, this.turretMat);
     turret.position.y = assault ? 0.44 : 0.43;
     turret.scale.set(heavy ? 1.12 : 1, heavy ? 0.92 : 1, heavy ? 1.12 : 1);
-    this.group.add(turret);
+    this.body.add(turret);
 
     const turretTop = new THREE.Mesh(heavy ? g.turretSlab : g.turretTop, this.turretMat);
     turretTop.position.y = heavy ? 0.51 : racer ? 0.48 : 0.5;
     turretTop.scale.set(racer ? 0.84 : 1, racer ? 0.8 : 1, racer ? 0.9 : 1);
-    this.group.add(turretTop);
+    this.body.add(turretTop);
 
-    this.bandGeo = new THREE.TorusGeometry(assault ? 0.252 : 0.232, 0.011, 6, 28);
-    const band = new THREE.Mesh(this.bandGeo, darkMetal);
+    const band = new THREE.Mesh(assault ? g.bandBig : g.bandSmall, darkMetal);
     band.rotation.x = Math.PI / 2;
     band.position.y = 0.375;
-    this.group.add(band);
+    this.body.add(band);
 
     const hatch = new THREE.Mesh(g.hatch, this.turretMat);
     hatch.scale.setScalar(heavy ? 0.85 : racer ? 0.8 : 1);
     hatch.position.set(heavy ? -0.08 : 0.06, heavy ? 0.575 : racer ? 0.525 : 0.545, heavy ? 0.06 : 0.04);
-    this.group.add(hatch);
+    this.body.add(hatch);
 
     const collar = new THREE.Mesh(g.muzzle, this.accentMat);
     collar.rotation.x = Math.PI / 2;
     collar.position.set(0, assault ? 0.45 : 0.44, -0.22);
     collar.scale.set(assault ? 1.8 : 1.5, 0.45, 1);
-    this.group.add(collar);
+    this.body.add(collar);
 
     this.barrel.position.set(0, assault ? 0.45 : 0.44, -0.2);
     if (assault) {
@@ -265,7 +297,7 @@ export class TankVisual {
       muzzle.position.z = racer ? -0.61 : heavy ? -0.45 : -0.52;
       this.barrel.add(muzzle);
     }
-    this.group.add(this.barrel);
+    this.body.add(this.barrel);
 
     // Exhaust stacks for racers, twin antennas for heavies, a beacon for power tanks.
     if (racer) {
@@ -273,7 +305,7 @@ export class TankVisual {
         const pipe = new THREE.Mesh(g.exhaust, darkMetal);
         pipe.position.set(side * 0.15, 0.34, 0.4);
         pipe.rotation.x = -0.28;
-        this.group.add(pipe);
+        this.body.add(pipe);
       }
     }
     if (heavy) {
@@ -282,14 +314,14 @@ export class TankVisual {
         whip.position.set(side * 0.26, 0.63, 0.26);
         whip.rotation.z = side * 0.3;
         whip.rotation.x = 0.18;
-        this.group.add(whip);
+        this.body.add(whip);
       }
     } else {
       const antenna = new THREE.Mesh(g.antenna, darkMetal);
       antenna.position.set(assault ? 0.24 : -0.27, assault ? 0.66 : 0.62, 0.24);
       antenna.rotation.z = assault ? -0.3 : 0.34;
       antenna.rotation.x = 0.22;
-      this.group.add(antenna);
+      this.body.add(antenna);
     }
 
     this.beaconMat = null;
@@ -302,7 +334,7 @@ export class TankVisual {
       });
       const beacon = new THREE.Mesh(g.beacon, beaconMat);
       beacon.position.set(0.14, 0.585, 0.1);
-      this.group.add(beacon);
+      this.body.add(beacon);
       this.beaconMat = beaconMat;
       this.materials.push(beaconMat);
     }
@@ -313,18 +345,35 @@ export class TankVisual {
       emissiveIntensity: racer ? 0.55 : 0.4,
       roughness: 0.3,
     });
-    this.materials.push(lightMat);
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: team === 'player' ? 0xffe4a8 : 0xffa87a,
+      transparent: true,
+      opacity: team === 'player' ? 0.12 : 0.07,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.materials.push(lightMat, beamMat);
     for (const side of [-1, 1]) {
+      const lx = side * (heavy ? 0.26 : 0.22);
+      const ly = heavy ? 0.35 : 0.33;
+      const lz = racer ? -0.42 : -0.38;
       const light = new THREE.Mesh(g.light, lightMat);
       light.scale.setScalar(racer ? 0.64 : heavy ? 0.9 : 0.78);
-      light.position.set(side * (heavy ? 0.26 : 0.22), heavy ? 0.35 : 0.33, racer ? -0.42 : -0.38);
-      this.group.add(light);
+      light.position.set(lx, ly, lz);
+      this.body.add(light);
+
+      const beam = new THREE.Mesh(g.headlightBeam, beamMat);
+      beam.position.set(lx, ly - 0.02, lz - 0.02);
+      beam.rotation.x = -0.14;
+      beam.userData.noShadow = true;
+      this.body.add(beam);
     }
 
     const stow = new THREE.Mesh(g.stow, darkMetal);
     stow.scale.setScalar(heavy ? 1.1 : racer ? 0.8 : 1);
     stow.position.set(0, heavy ? 0.42 : 0.39, heavy ? 0.34 : 0.31);
-    this.group.add(stow);
+    this.body.add(stow);
     this.materials.push(darkMetal);
 
     if (team === 'player') {
@@ -338,10 +387,65 @@ export class TankVisual {
       this.marker = new THREE.Mesh(g.markerQuad, mat);
       this.marker.rotation.x = -Math.PI / 2;
       this.marker.position.set(0, 0.581, 0.05);
+      this.marker.userData.noShadow = true;
       const plate = new THREE.Mesh(g.markerPlate, darkMetal);
       plate.position.set(0, 0.57, 0.05);
-      this.group.add(plate);
-      this.group.add(this.marker);
+      this.body.add(plate);
+      this.body.add(this.marker);
+
+      // Star-level visual upgrades for player tanks.
+      const goldTrim = new THREE.MeshStandardMaterial({
+        color: 0xffc857,
+        emissive: new THREE.Color(0xffaa2b),
+        emissiveIntensity: 0.7,
+        metalness: 0.75,
+        roughness: 0.25,
+      });
+      this.materials.push(goldTrim);
+
+      // Star 1: long precision barrel extension + glowing muzzle ring
+      const barrelExt = new THREE.Mesh(g.starBarrelExt, gunMetal);
+      barrelExt.rotation.x = Math.PI / 2;
+      barrelExt.position.z = -0.61;
+      const muzzleRing = new THREE.Mesh(g.muzzle, goldTrim);
+      muzzleRing.rotation.x = Math.PI / 2;
+      muzzleRing.scale.set(0.96, 0.42, 0.96);
+      muzzleRing.position.z = -0.71;
+      barrelExt.visible = false;
+      muzzleRing.visible = false;
+      this.barrel.add(barrelExt, muzzleRing);
+      this.star1Parts.push(barrelExt, muzzleRing);
+
+      // Star 2: secondary coaxial cannon barrel
+      const coax = new THREE.Mesh(g.barrel, gunMetal);
+      coax.rotation.x = Math.PI / 2;
+      coax.scale.set(0.62, 0.62, 0.85);
+      coax.position.set(0.095, 0.01, -0.29);
+      const coaxMuzzle = new THREE.Mesh(g.muzzle, gunMetal);
+      coaxMuzzle.rotation.x = Math.PI / 2;
+      coaxMuzzle.scale.set(0.68, 0.65, 0.68);
+      coaxMuzzle.position.set(0.095, 0.01, -0.49);
+      coax.visible = false;
+      coaxMuzzle.visible = false;
+      this.barrel.add(coax, coaxMuzzle);
+      this.star2Parts.push(coax, coaxMuzzle);
+
+      // Star 3: reactive armor side skirts + golden turret chevrons
+      for (const side of [-1, 1]) {
+        const skirt = new THREE.Mesh(g.skirt, this.hullMat);
+        skirt.position.set(side * 0.355, 0.29, 0.02);
+        skirt.scale.set(0.85, 0.88, 0.96);
+        skirt.visible = false;
+        this.body.add(skirt);
+        this.star3Parts.push(skirt);
+
+        const chevron = new THREE.Mesh(g.starChevron, goldTrim);
+        chevron.position.set(side * 0.165, 0.515, -0.02);
+        chevron.rotation.y = side * 0.4;
+        chevron.visible = false;
+        this.body.add(chevron);
+        this.star3Parts.push(chevron);
+      }
     }
 
     this.shieldMat = new THREE.ShaderMaterial({
@@ -375,13 +479,14 @@ export class TankVisual {
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
     });
-    this.shield = new THREE.Mesh(new THREE.SphereGeometry(0.55, 24, 16), this.shieldMat);
+    this.shield = new THREE.Mesh(g.shieldSphere, this.shieldMat);
     this.shield.position.y = 0.32;
     this.shield.visible = false;
+    this.shield.userData.noShadow = true;
     this.group.add(this.shield);
 
     this.group.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
+      if (obj instanceof THREE.Mesh && !obj.userData.noShadow) {
         obj.castShadow = true;
         obj.receiveShadow = true;
       }
@@ -390,9 +495,12 @@ export class TankVisual {
     this.baseEmissive = bonus ? 0.7 : 0;
   }
 
-  update(tank: Tank, time: number, dt: number): void {
+  update(tank: Tank, time: number, dt: number, frozen = false): void {
     this.group.position.set(tank.x, 0, tank.z);
     this.group.rotation.y = DIR_ANGLE[tank.dir] ?? 0;
+
+    this.body.rotation.x = tank.recoil * 0.045 - tank.moving * 0.018;
+    this.body.position.y = Math.sin(time * 42 + tank.x * 3) * (0.0018 + tank.moving * 0.0025);
 
     this.barrel.position.z = -0.2 + tank.recoil * 0.08;
     this.barrel.rotation.x = -tank.recoil * 0.06;
@@ -400,6 +508,25 @@ export class TankVisual {
     this.trackOffset += tank.moving * dt * 1.9;
     for (const mat of this.trackMats) {
       if (mat.map) mat.map.offset.y = this.trackOffset % 1;
+    }
+
+    if (tank.moving > 0.01) {
+      this.wheelSpin += tank.moving * dt * 8;
+      for (const wheel of this.wheels) {
+        wheel.rotation.x = this.wheelSpin;
+      }
+    }
+
+    if (this.team === 'player') {
+      for (const part of this.star1Parts) part.visible = tank.star >= 1;
+      for (const part of this.star2Parts) part.visible = tank.star >= 2;
+      for (const part of this.star3Parts) part.visible = tank.star >= 3;
+    }
+
+    if (this.kind === 'armor') {
+      const hex = ARMOR_HP_COLORS[Math.max(1, Math.min(4, tank.hp))] ?? ARMOR_HP_COLORS[4];
+      this.hullMat.color.setHex(hex);
+      this.turretMat.color.setHex(hex).multiplyScalar(0.82);
     }
 
     if (tank.spawn > 0) {
@@ -414,9 +541,15 @@ export class TankVisual {
     const flash = tank.hitFlash > 0 ? 3.5 : 0;
     this.hullMat.emissiveIntensity = Math.max(this.baseEmissive, flash);
     if (tank.bonus) {
+      this.hullMat.emissive.setHex(0xff6a4a);
       this.hullMat.emissiveIntensity = 0.22 + Math.abs(Math.sin(time * 6 + tank.x)) * 0.55;
     } else if (this.team === 'enemy') {
-      this.hullMat.emissive.setHex(0xff2d1a);
+      if (frozen && flash === 0) {
+        this.hullMat.emissive.setHex(0x3898c8);
+        this.hullMat.emissiveIntensity = 0.28 + Math.sin(time * 4 + tank.x) * 0.08;
+      } else {
+        this.hullMat.emissive.setHex(0xff2d1a);
+      }
     }
     this.turretMat.emissiveIntensity = this.hullMat.emissiveIntensity;
     this.turretMat.emissive.copy(this.hullMat.emissive);
@@ -450,8 +583,6 @@ export class TankVisual {
       mat.dispose();
     }
     this.shieldMat.dispose();
-    this.shield.geometry.dispose();
-    this.bandGeo.dispose();
   }
 }
 
@@ -464,9 +595,10 @@ export class BulletVisual {
   private speedHint = 0;
 
   constructor(team: string, power: number) {
+    const g = geometries();
     const color = team === 'player' ? (power > 1 ? 0xfff0a0 : 0xffc35e) : 0xff6a42;
     this.coreMat = new THREE.MeshBasicMaterial({ color });
-    const core = new THREE.Mesh(new THREE.CapsuleGeometry(0.038, 0.11, 4, 8), this.coreMat);
+    const core = new THREE.Mesh(g.bulletCore, this.coreMat);
     core.rotation.x = Math.PI / 2;
     this.group.add(core);
 
@@ -488,7 +620,7 @@ export class BulletVisual {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    this.trail = new THREE.Mesh(new THREE.PlaneGeometry(0.09, 0.5), this.trailMat);
+    this.trail = new THREE.Mesh(g.bulletTrail, this.trailMat);
     this.trail.rotation.x = -Math.PI / 2;
     this.trail.position.set(0, -0.03, 0.28);
     this.group.add(this.trail);
@@ -507,9 +639,7 @@ export class BulletVisual {
     this.group.removeFromParent();
     this.coreMat.dispose();
     this.trailMat.dispose();
-    this.trail.geometry.dispose();
     (this.glow.material as THREE.SpriteMaterial).dispose();
-    this.glow.geometry.dispose();
   }
 }
 
@@ -677,6 +807,8 @@ export class PowerUpVisual {
   dispose(): void {
     this.group.removeFromParent();
     for (const mat of this.materials) mat.dispose();
+    this.ring.geometry.dispose();
+    this.beam.geometry.dispose();
     this.icon.traverse((obj) => {
       if (obj instanceof THREE.Mesh) obj.geometry.dispose();
     });

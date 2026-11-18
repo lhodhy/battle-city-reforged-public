@@ -88,8 +88,10 @@ export type GameEvent =
   | { type: 'brickBreak'; x: number; z: number; mask: number; removed: number[]; dir: Dir }
   | { type: 'steelHit'; x: number; z: number; dir: Dir }
   | { type: 'steelBreak'; x: number; z: number; mask: number; removed: number[]; dir: Dir }
-  | { type: 'tankHit'; x: number; z: number; team: Team; kind: string; hp: number }
+  | { type: 'tankHit'; x: number; z: number; team: Team; kind: string; hp: number; maxHp?: number }
   | { type: 'tankDestroyed'; x: number; z: number; team: Team; kind: string; bonus: boolean }
+  | { type: 'combo'; player: number; count: number; bonus: number; x: number; z: number }
+  | { type: 'iceSlide'; x: number; z: number; team: Team }
   | { type: 'playerOut'; player: number }
   | { type: 'powerupSpawn'; x: number; z: number; kind: PowerKind }
   | { type: 'powerupPickup'; x: number; z: number; kind: PowerKind; player: number }

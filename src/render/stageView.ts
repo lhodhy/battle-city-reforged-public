@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { FIELD, GRID } from '../core/constants';
+import { ENEMY_SPAWNS, FIELD, GRID, PLAYER_SPAWNS } from '../core/constants';
 import type { Terrain } from '../core/terrain';
 import { BaseVisual } from './models';
 import {
@@ -36,7 +36,9 @@ export class StageView {
   private steelSlots = new Map<number, number[]>();
   private dummy = new THREE.Object3D();
   private disposables: Array<THREE.Material | THREE.BufferGeometry> = [];
+  private wallDisposables: Array<THREE.Material | THREE.BufferGeometry> = [];
   private groundMat: THREE.MeshStandardMaterial | null = null;
+  private windUniform = { value: 0 };
   private time = 0;
 
   constructor() {
@@ -86,6 +88,7 @@ export class StageView {
     this.track(apronMat, apron.geometry);
 
     this.buildBorder();
+    this.buildSpawnPads();
     this.buildTerrainCells(terrain, stage);
     this.buildBrickAndSteel(terrain);
     this.buildSetDressing();
@@ -175,6 +178,66 @@ export class StageView {
       this.group.add(cap);
       this.track(cap.geometry);
     }
+  }
+
+  private buildSpawnPads(): void {
+    const outerGeo = new THREE.RingGeometry(0.32, 0.4, 24);
+    outerGeo.rotateX(-Math.PI / 2);
+    const innerGeo = new THREE.RingGeometry(0.14, 0.19, 4);
+    innerGeo.rotateX(-Math.PI / 2);
+    const padMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.38,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.track(outerGeo, innerGeo, padMat);
+
+    const total = ENEMY_SPAWNS.length + PLAYER_SPAWNS.length;
+    const outer = new THREE.InstancedMesh(outerGeo, padMat, total);
+    const inner = new THREE.InstancedMesh(innerGeo, padMat, total);
+    outer.renderOrder = 1;
+    inner.renderOrder = 1;
+
+    const dummy = new THREE.Object3D();
+    const color = new THREE.Color();
+    let idx = 0;
+    for (const spawn of ENEMY_SPAWNS) {
+      dummy.position.set(spawn.x, 0.013, spawn.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.updateMatrix();
+      outer.setMatrixAt(idx, dummy.matrix);
+      dummy.rotation.set(0, Math.PI / 4, 0);
+      dummy.updateMatrix();
+      inner.setMatrixAt(idx, dummy.matrix);
+      color.setHex(0xff6b47);
+      outer.setColorAt(idx, color);
+      inner.setColorAt(idx, color);
+      idx++;
+    }
+    for (let p = 0; p < PLAYER_SPAWNS.length; p++) {
+      const spawn = PLAYER_SPAWNS[p];
+      dummy.position.set(spawn.x, 0.013, spawn.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.updateMatrix();
+      outer.setMatrixAt(idx, dummy.matrix);
+      dummy.rotation.set(0, Math.PI / 4, 0);
+      dummy.updateMatrix();
+      inner.setMatrixAt(idx, dummy.matrix);
+      color.setHex(p === 0 ? 0xffc055 : 0x6fe0c0);
+      outer.setColorAt(idx, color);
+      inner.setColorAt(idx, color);
+      idx++;
+    }
+    outer.instanceMatrix.needsUpdate = true;
+    inner.instanceMatrix.needsUpdate = true;
+    if (outer.instanceColor) outer.instanceColor.needsUpdate = true;
+    if (inner.instanceColor) inner.instanceColor.needsUpdate = true;
+    this.group.add(outer, inner);
   }
 
   /**
@@ -318,7 +381,30 @@ export class StageView {
     const mastGeo = new THREE.CylinderGeometry(0.055, 0.085, 2.6, 8);
     const armGeo = new THREE.BoxGeometry(0.44, 0.07, 0.07);
     const lampGeo = new THREE.BoxGeometry(0.26, 0.1, 0.16);
-    this.track(armGeo, lampGeo);
+    const beamConeGeo = new THREE.CylinderGeometry(0.12, 1.8, 3.2, 16, 1, true);
+    beamConeGeo.translate(0, -1.6, 0);
+    const beamConeMat = new THREE.ShaderMaterial({
+      uniforms: {},
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          float fade = pow(vUv.y, 1.8) * 0.095;
+          gl_FragColor = vec4(1.0, 0.87, 0.65, fade);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    this.track(mastGeo, armGeo, lampGeo, beamConeGeo, beamConeMat);
 
     for (const [x, z, dir] of [
       [-2.6, -2.6, 1],
@@ -338,6 +424,12 @@ export class StageView {
       const lamp = new THREE.Mesh(lampGeo, lampMat);
       lamp.position.set(x + dir * 0.38, 2.46, z);
       this.group.add(lamp);
+
+      const beam = new THREE.Mesh(beamConeGeo, beamConeMat);
+      beam.position.set(x + dir * 0.38, 2.42, z);
+      beam.rotation.z = dir * 0.38;
+      beam.rotation.x = z < 0 ? -0.36 : 0.36;
+      this.group.add(beam);
 
       if (x === -2.6) {
         const light = new THREE.PointLight(0xffd6a0, 7.5, 11, 2);
@@ -387,54 +479,10 @@ export class StageView {
     this.group.add(ruins);
   }
 
-  private buildTerrainCells(terrain: Terrain, stage: number): void {    const iceMat = new THREE.MeshPhysicalMaterial({
-      map: iceTexture(),
-      color: 0xffffff,
-      roughness: 0.06,
-      metalness: 0.06,
-      clearcoat: 1,
-      clearcoatRoughness: 0.04,
-      transparent: true,
-      opacity: 0.96,
-      envMapIntensity: 1.4,
-      side: THREE.DoubleSide,
-    });
-    this.track(iceMat);
-    const iceGeo = new THREE.PlaneGeometry(0.985, 0.985);
-
-    const waterNormal = waterNormalTexture().clone();
-    waterNormal.needsUpdate = true;
-    this.waterNormal = waterNormal;
-    const waterMat = new THREE.MeshPhysicalMaterial({
-      color: 0x0c3442,
-      roughness: 0.04,
-      metalness: 0.12,
-      clearcoat: 1,
-      clearcoatRoughness: 0.02,
-      normalMap: waterNormal,
-      normalScale: new THREE.Vector2(0.55, 0.55),
-      transparent: true,
-      opacity: 0.9,
-      envMapIntensity: 1.7,
-      side: THREE.DoubleSide,
-    });
-    this.waterMat = waterMat;
-    this.track(waterMat);
-    const waterGeo = new THREE.PlaneGeometry(0.985, 0.985);
-
-    const waterBedMat = new THREE.MeshStandardMaterial({ color: 0x04141b, roughness: 0.8, metalness: 0.1 });
-    this.track(waterBedMat);
-    const waterBedGeo = new THREE.PlaneGeometry(0.98, 0.98);
-
-    const forestMat = new THREE.MeshStandardMaterial({
-      map: forestFloorTexture(),
-      color: 0x9fae8f,
-      roughness: 0.95,
-      metalness: 0,
-    });
-    this.track(forestMat);
-    const forestGeo = new THREE.PlaneGeometry(0.995, 0.995);
-
+  private buildTerrainCells(terrain: Terrain, stage: number): void {
+    const iceSpots: Array<{ x: number; z: number }> = [];
+    const waterSpots: Array<{ x: number; z: number }> = [];
+    const forestSpots: Array<{ x: number; z: number }> = [];
     const treeSpots: Array<{ x: number; z: number; seed: number; kind: number }> = [];
 
     for (let z = 0; z < GRID; z++) {
@@ -444,27 +492,11 @@ export class StageView {
         const cx = x + 0.5;
         const cz = z + 0.5;
         if (cell.kind === 'ice') {
-          const plane = new THREE.Mesh(iceGeo, iceMat);
-          plane.rotation.x = -Math.PI / 2;
-          plane.position.set(cx, 0.012, cz);
-          plane.receiveShadow = true;
-          this.group.add(plane);
+          iceSpots.push({ x: cx, z: cz });
         } else if (cell.kind === 'water') {
-          const bed = new THREE.Mesh(waterBedGeo, waterBedMat);
-          bed.rotation.x = -Math.PI / 2;
-          bed.position.set(cx, 0.004, cz);
-          this.group.add(bed);
-          const surface = new THREE.Mesh(waterGeo, waterMat);
-          surface.rotation.x = -Math.PI / 2;
-          surface.position.set(cx, 0.055, cz);
-          surface.receiveShadow = true;
-          this.group.add(surface);
+          waterSpots.push({ x: cx, z: cz });
         } else if (cell.kind === 'forest') {
-          const floor = new THREE.Mesh(forestGeo, forestMat);
-          floor.rotation.x = -Math.PI / 2;
-          floor.position.set(cx, 0.008, cz);
-          floor.receiveShadow = true;
-          this.group.add(floor);
+          forestSpots.push({ x: cx, z: cz });
           const count = 2 + Math.floor(hash(x, z, stage) * 3);
           for (let i = 0; i < count; i++) {
             treeSpots.push({
@@ -478,7 +510,103 @@ export class StageView {
       }
     }
 
-    this.track(iceGeo, waterGeo, waterBedGeo, forestGeo);
+    const dummy = new THREE.Object3D();
+
+    if (iceSpots.length) {
+      const iceMat = new THREE.MeshPhysicalMaterial({
+        map: iceTexture(),
+        color: 0xffffff,
+        roughness: 0.06,
+        metalness: 0.06,
+        clearcoat: 1,
+        clearcoatRoughness: 0.04,
+        transparent: true,
+        opacity: 0.96,
+        envMapIntensity: 1.4,
+        side: THREE.DoubleSide,
+      });
+      const iceGeo = new THREE.PlaneGeometry(0.985, 0.985);
+      iceGeo.rotateX(-Math.PI / 2);
+      const iceMesh = new THREE.InstancedMesh(iceGeo, iceMat, iceSpots.length);
+      iceMesh.receiveShadow = true;
+      for (let i = 0; i < iceSpots.length; i++) {
+        dummy.position.set(iceSpots[i].x, 0.012, iceSpots[i].z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.setScalar(1);
+        dummy.updateMatrix();
+        iceMesh.setMatrixAt(i, dummy.matrix);
+      }
+      iceMesh.instanceMatrix.needsUpdate = true;
+      this.group.add(iceMesh);
+      this.track(iceMat, iceGeo);
+    }
+
+    if (waterSpots.length) {
+      const waterNormal = waterNormalTexture().clone();
+      waterNormal.needsUpdate = true;
+      this.waterNormal = waterNormal;
+      const waterMat = new THREE.MeshPhysicalMaterial({
+        color: 0x0c3442,
+        roughness: 0.04,
+        metalness: 0.12,
+        clearcoat: 1,
+        clearcoatRoughness: 0.02,
+        normalMap: waterNormal,
+        normalScale: new THREE.Vector2(0.55, 0.55),
+        transparent: true,
+        opacity: 0.9,
+        envMapIntensity: 1.7,
+        side: THREE.DoubleSide,
+      });
+      this.waterMat = waterMat;
+      const waterGeo = new THREE.PlaneGeometry(0.985, 0.985);
+      waterGeo.rotateX(-Math.PI / 2);
+      const waterBedMat = new THREE.MeshStandardMaterial({ color: 0x04141b, roughness: 0.8, metalness: 0.1 });
+      const waterBedGeo = new THREE.PlaneGeometry(0.98, 0.98);
+      waterBedGeo.rotateX(-Math.PI / 2);
+
+      const bedMesh = new THREE.InstancedMesh(waterBedGeo, waterBedMat, waterSpots.length);
+      const surfaceMesh = new THREE.InstancedMesh(waterGeo, waterMat, waterSpots.length);
+      surfaceMesh.receiveShadow = true;
+      for (let i = 0; i < waterSpots.length; i++) {
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.setScalar(1);
+        dummy.position.set(waterSpots[i].x, 0.004, waterSpots[i].z);
+        dummy.updateMatrix();
+        bedMesh.setMatrixAt(i, dummy.matrix);
+        dummy.position.set(waterSpots[i].x, 0.055, waterSpots[i].z);
+        dummy.updateMatrix();
+        surfaceMesh.setMatrixAt(i, dummy.matrix);
+      }
+      bedMesh.instanceMatrix.needsUpdate = true;
+      surfaceMesh.instanceMatrix.needsUpdate = true;
+      this.group.add(bedMesh, surfaceMesh);
+      this.track(waterMat, waterGeo, waterBedMat, waterBedGeo);
+    }
+
+    if (forestSpots.length) {
+      const forestMat = new THREE.MeshStandardMaterial({
+        map: forestFloorTexture(),
+        color: 0x9fae8f,
+        roughness: 0.95,
+        metalness: 0,
+      });
+      const forestGeo = new THREE.PlaneGeometry(0.995, 0.995);
+      forestGeo.rotateX(-Math.PI / 2);
+      const floorMesh = new THREE.InstancedMesh(forestGeo, forestMat, forestSpots.length);
+      floorMesh.receiveShadow = true;
+      for (let i = 0; i < forestSpots.length; i++) {
+        dummy.position.set(forestSpots[i].x, 0.008, forestSpots[i].z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.setScalar(1);
+        dummy.updateMatrix();
+        floorMesh.setMatrixAt(i, dummy.matrix);
+      }
+      floorMesh.instanceMatrix.needsUpdate = true;
+      this.group.add(floorMesh);
+      this.track(forestMat, forestGeo);
+    }
+
     if (treeSpots.length) this.buildTrees(treeSpots);
   }
 
@@ -492,6 +620,24 @@ export class StageView {
       metalness: 0.05,
       flatShading: true,
     });
+    leafMat.customProgramCacheKey = () => 'forest-wind';
+    leafMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uWindTime = this.windUniform;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uWindTime;')
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          float tipWeight = clamp((position.y + 0.25) * 2.0, 0.0, 1.0);
+          #ifdef USE_INSTANCING
+            float treePhase = instanceMatrix[3][0] * 1.3 + instanceMatrix[3][2] * 0.9;
+          #else
+            float treePhase = 0.0;
+          #endif
+          transformed.x += sin(uWindTime * 1.9 + treePhase) * 0.032 * tipWeight;
+          transformed.z += cos(uWindTime * 1.5 + treePhase * 1.1) * 0.024 * tipWeight;`,
+        );
+    };
     this.track(trunkMat, leafMat);
 
     const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, spots.length);
@@ -545,7 +691,7 @@ export class StageView {
       metalness: 0.04,
       envMapIntensity: 0.5,
     });
-    this.track(brickMat, brickGeo);
+    this.wallDisposables.push(brickMat, brickGeo);
     const maxBricks = GRID * GRID * 4;
     const bricks = new THREE.InstancedMesh(brickGeo, brickMat, maxBricks);
     bricks.castShadow = true;
@@ -562,7 +708,7 @@ export class StageView {
       roughness: 0.34,
       envMapIntensity: 1.9,
     });
-    this.track(steelMat, steelGeo);
+    this.wallDisposables.push(steelMat, steelGeo);
     const steels = new THREE.InstancedMesh(steelGeo, steelMat, maxBricks);
     steels.castShadow = true;
     steels.receiveShadow = true;
@@ -678,13 +824,26 @@ export class StageView {
     this.groundMat.color.setHSL(0.09, 0.06, 0.42 - wet * 0.12);
   }
 
-  /** Rebuilds static terrain after a shovel power-up turns walls to steel. */
-  refresh(terrain: Terrain, stage: number, baseAlive: boolean): void {
-    this.build(terrain, stage, baseAlive);
+  /** Rebuilds only brick and steel walls after a shovel power-up toggles fort armor. */
+  refresh(terrain: Terrain, _stage: number, _baseAlive: boolean): void {
+    this.clearBrickAndSteel();
+    this.buildBrickAndSteel(terrain);
+  }
+
+  private clearBrickAndSteel(): void {
+    this.brickMesh?.removeFromParent();
+    this.steelMesh?.removeFromParent();
+    for (const item of this.wallDisposables) item.dispose();
+    this.wallDisposables = [];
+    this.brickMesh = null;
+    this.steelMesh = null;
+    this.brickSlots.clear();
+    this.steelSlots.clear();
   }
 
   update(dt: number, time: number): void {
     this.time += dt;
+    this.windUniform.value = time;
     if (this.waterNormal) {
       this.waterNormal.offset.x = time * 0.04;
       this.waterNormal.offset.y = time * 0.027;
@@ -697,15 +856,12 @@ export class StageView {
   }
 
   private clear(): void {
+    this.clearBrickAndSteel();
     this.group.clear();
     for (const item of this.disposables) item.dispose();
     this.disposables = [];
-    this.brickMesh = null;
-    this.steelMesh = null;
     this.waterMat = null;
     this.waterNormal = null;
-    this.brickSlots.clear();
-    this.steelSlots.clear();
   }
 
   dispose(): void {

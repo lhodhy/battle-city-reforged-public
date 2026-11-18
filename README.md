@@ -36,6 +36,7 @@ npm test
 | Fire | Space | F |
 | Pause | P / Esc | P / Esc |
 | Mute | M | M |
+| Select sector | `[` / `]` or `←` / `→` (title) | — |
 | Start / retry | Enter (menu), R (game over) | — |
 
 Gamepads are supported: left stick / d-pad to move, A / X / RT to fire, Start to deploy,
@@ -48,19 +49,19 @@ Back / Select to pause.
 - Four enemy classes with distinct hulls, turrets, and armaments — see below.
 - Enemy AI re-routes when blocked and shells brick walls in its path, so tanks do not lock up
   against terrain.
-- Spawn queues, bonus tanks, and the full 35-stage loop (10 handmade maps, then seeded
-  procedural stages with scaling difficulty).
-- Power-ups: star, helmet, clock, shovel, grenade, and extra tank.
-- Single-player and two-player local co-op, shared stage flow, lives, respawns, and scoring.
+- Spawn queues, bonus tanks, kill-chain combos, and the full 35-stage loop (10 handmade maps, then seeded
+  procedural stages with scaling difficulty and title-screen sector selection).
+- Power-ups: star (with progressive barrel/armor upgrades and faster star-3 reload), helmet, clock (with freeze vignette and audio filter), shovel, grenade, and extra tank.
+- Single-player and two-player local co-op, shared stage flow, lives, respawns, floating score popups, and scoring.
 - PBR materials with procedural colour, normal and roughness maps; the ground, brick and
   steel all respond to a raking key light with real shadow casting.
-- Night-time arena framed by sandbags, crates, barrels, floodlights and a ruined skyline,
-  with ACES tone mapping, bloom, colour grading, SMAA, animated water/ice, and forest canopies.
-- Physics-driven particles: debris, sparks, smoke, shockwave rings, scorch decals, muzzle
-  flashes, camera shake, and screen flashes.
-- Weather per sector — drifting embers, slanted rain with lightning, or falling snow — each
-  with its own fog, light mood and ground wetness.
-- Synthesized WebAudio sound effects, engine loop, and original chiptune music with a mute
+- Night-time arena framed by sandbags, crates, barrels, floodlights with volumetric cones, spawn pads, and a ruined skyline,
+  with ACES tone mapping, bloom, colour grading, SMAA, animated water/ice, and wind-swayed forest canopies.
+- Physics-driven particles: debris, sparks, smoke, shockwave rings, scorch decals, fading tank tread marks, muzzle
+  flashes, rotating road wheels, headlight beams, armor damage states, camera shake, and screen flashes.
+- Weather per sector — drifting embers, slanted rain with thunder and lightning, or falling snow — each
+  with its own fog, light mood, ground wetness, and matching chiptune theme.
+- Synthesized WebAudio sound effects, engine loop, and multi-sector chiptune music with dynamic freeze filtering, last-enemies tempo tension, and a mute
   toggle.
 
 ## Enemy classes

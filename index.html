@@ -12,6 +12,7 @@
       <canvas id="scene" aria-label="Battle City game field"></canvas>
 
       <div id="hud" class="hud hidden">
+        <div id="popups" class="popups"></div>
         <div class="hud-top">
           <div class="hud-block">
             <span class="label">STAGE</span>
@@ -55,6 +56,15 @@
             <div class="menu" id="titleMenu">
               <button class="menu-item" data-mode="1"><span class="key">1</span> ONE PLAYER</button>
               <button class="menu-item" data-mode="2"><span class="key">2</span> TWO PLAYERS</button>
+            </div>
+            <div class="stage-picker" id="stagePicker">
+              <button class="stage-btn" id="stagePrev" type="button" aria-label="Previous stage">&lsaquo;</button>
+              <div class="stage-readout">
+                <span class="stage-kicker">SECTOR</span>
+                <span class="stage-val" id="titleStageNum">01</span>
+                <span class="stage-name" id="titleStageName">DEFEND THE EAGLE</span>
+              </div>
+              <button class="stage-btn" id="stageNext" type="button" aria-label="Next stage">&rsaquo;</button>
             </div>
             <div class="controls">
               <div class="control-col">

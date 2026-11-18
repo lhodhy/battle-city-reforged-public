@@ -3,6 +3,8 @@ import type { Dir } from '../core/types';
 import { DIRS } from '../core/constants';
 import { scorchTexture, smokeTexture, sparkTexture } from './textures';
 
+const DIR_ANGLE = [0, -Math.PI / 2, Math.PI, Math.PI / 2];
+
 interface ParticleSeed {
   x: number;
   y: number;
@@ -38,6 +40,8 @@ class ParticleField {
   private drag: Float32Array;
   private alpha0: Float32Array;
   private cursor = 0;
+  private activeCount = 0;
+  private colorDirty = false;
   private material: THREE.ShaderMaterial;
 
   constructor(capacity: number, map: THREE.Texture, additive: boolean) {
@@ -108,6 +112,7 @@ class ParticleField {
   spawn(seed: ParticleSeed): void {
     const i = this.cursor;
     this.cursor = (this.cursor + 1) % this.capacity;
+    if (this.life[i] <= 0) this.activeCount++;
     this.positions[i * 3] = seed.x;
     this.positions[i * 3 + 1] = seed.y;
     this.positions[i * 3 + 2] = seed.z;
@@ -126,9 +131,11 @@ class ParticleField {
     this.alpha0[i] = seed.alpha;
     this.sizes[i] = seed.size0;
     this.alphas[i] = seed.alpha;
+    this.colorDirty = true;
   }
 
   update(dt: number): void {
+    if (this.activeCount === 0 && !this.colorDirty) return;
     for (let i = 0; i < this.capacity; i++) {
       if (this.life[i] <= 0) {
         if (this.alphas[i] !== 0) this.alphas[i] = 0;
@@ -136,6 +143,7 @@ class ParticleField {
       }
       this.life[i] -= dt;
       if (this.life[i] <= 0) {
+        this.activeCount = Math.max(0, this.activeCount - 1);
         this.alphas[i] = 0;
         this.sizes[i] = 0;
         this.positions[i * 3 + 1] = -100;
@@ -158,7 +166,10 @@ class ParticleField {
     }
     const geometry = this.points.geometry;
     (geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
-    (geometry.getAttribute('aColor') as THREE.BufferAttribute).needsUpdate = true;
+    if (this.colorDirty) {
+      (geometry.getAttribute('aColor') as THREE.BufferAttribute).needsUpdate = true;
+      this.colorDirty = false;
+    }
     (geometry.getAttribute('aSize') as THREE.BufferAttribute).needsUpdate = true;
     (geometry.getAttribute('aAlpha') as THREE.BufferAttribute).needsUpdate = true;
   }
@@ -197,6 +208,8 @@ class DebrisSystem {
   readonly mesh: THREE.InstancedMesh;
   private slots: DebrisSlot[] = [];
   private cursor = 0;
+  private activeCount = 0;
+  private colorDirty = false;
   private dummy = new THREE.Object3D();
   private color = new THREE.Color();
 
@@ -247,6 +260,7 @@ class DebrisSystem {
     const i = this.cursor;
     this.cursor = (this.cursor + 1) % this.slots.length;
     const slot = this.slots[i];
+    if (!slot.active) this.activeCount++;
     const angle = Math.random() * Math.PI * 2;
     const speed = (0.6 + Math.random() * 1.8) * power;
     slot.active = true;
@@ -266,16 +280,18 @@ class DebrisSystem {
     slot.life = 1.6 + Math.random() * 1.6;
     slot.maxLife = slot.life;
     this.mesh.setColorAt(i, color);
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    this.colorDirty = true;
   }
 
   update(dt: number): void {
+    if (this.activeCount === 0 && !this.colorDirty) return;
     for (let i = 0; i < this.slots.length; i++) {
       const slot = this.slots[i];
       if (!slot.active) continue;
       slot.life -= dt;
       if (slot.life <= 0) {
         slot.active = false;
+        this.activeCount = Math.max(0, this.activeCount - 1);
         slot.scale = 0;
         this.dummy.position.set(0, -10, 0);
         this.dummy.scale.setScalar(0);
@@ -306,6 +322,10 @@ class DebrisSystem {
       this.mesh.setMatrixAt(i, this.dummy.matrix);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.colorDirty && this.mesh.instanceColor) {
+      this.mesh.instanceColor.needsUpdate = true;
+      this.colorDirty = false;
+    }
   }
 
   dispose(): void {
@@ -323,12 +343,139 @@ interface RingSlot {
   scale: number;
 }
 
+class TreadSystem {
+  readonly mesh: THREE.InstancedMesh;
+  private life: Float32Array;
+  private maxLife = 8.0;
+  private alphaAttr: THREE.InstancedBufferAttribute;
+  private alphas: Float32Array;
+  private cursor = 0;
+  private activeCount = 0;
+  private matrixDirty = false;
+  private colorDirty = false;
+  private dummy = new THREE.Object3D();
+  private dirtColor = new THREE.Color(0x161411);
+  private iceColor = new THREE.Color(0xd5eef8);
+
+  constructor(capacity = 180) {
+    const geometry = new THREE.PlaneGeometry(0.76, 0.28);
+    geometry.rotateX(-Math.PI / 2);
+    this.life = new Float32Array(capacity);
+    this.alphas = new Float32Array(capacity);
+    this.alphaAttr = new THREE.InstancedBufferAttribute(this.alphas, 1);
+    this.alphaAttr.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('aAlpha', this.alphaAttr);
+
+    const material = new THREE.ShaderMaterial({
+      vertexShader: /* glsl */ `
+        attribute float aAlpha;
+        varying vec2 vUv;
+        varying float vAlpha;
+        varying vec3 vTint;
+        void main() {
+          vUv = uv;
+          vAlpha = aAlpha;
+          #ifdef USE_INSTANCING_COLOR
+            vTint = instanceColor;
+          #else
+            vTint = vec3(0.09, 0.08, 0.07);
+          #endif
+          vec4 wp = vec4(position, 1.0);
+          #ifdef USE_INSTANCING
+            wp = instanceMatrix * wp;
+          #endif
+          gl_Position = projectionMatrix * modelViewMatrix * wp;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        varying vec2 vUv;
+        varying float vAlpha;
+        varying vec3 vTint;
+        void main() {
+          if (vAlpha <= 0.005) discard;
+          float edgeX = abs(vUv.x - 0.5);
+          float tracks = smoothstep(0.24, 0.27, edgeX) * (1.0 - smoothstep(0.45, 0.48, edgeX));
+          float lug = 0.55 + 0.45 * sin(vUv.y * 18.85);
+          float endFade = smoothstep(0.0, 0.18, vUv.y) * (1.0 - smoothstep(0.82, 1.0, vUv.y));
+          float a = tracks * lug * endFade * vAlpha;
+          if (a <= 0.005) discard;
+          gl_FragColor = vec4(vTint, a);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+    });
+
+    this.mesh = new THREE.InstancedMesh(geometry, material, capacity);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 1;
+    for (let i = 0; i < capacity; i++) {
+      this.dummy.position.set(0, -10, 0);
+      this.dummy.scale.setScalar(0);
+      this.dummy.updateMatrix();
+      this.mesh.setMatrixAt(i, this.dummy.matrix);
+      this.mesh.setColorAt(i, this.dirtColor);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+  }
+
+  spawn(x: number, z: number, dir: Dir, onIce: boolean): void {
+    const i = this.cursor;
+    this.cursor = (this.cursor + 1) % this.life.length;
+    if (this.life[i] <= 0) this.activeCount++;
+    this.life[i] = this.maxLife;
+    this.alphas[i] = onIce ? 0.28 : 0.34;
+    this.dummy.position.set(x, 0.014, z);
+    this.dummy.rotation.set(0, DIR_ANGLE[dir] ?? 0, 0);
+    this.dummy.scale.setScalar(1);
+    this.dummy.updateMatrix();
+    this.mesh.setMatrixAt(i, this.dummy.matrix);
+    this.mesh.setColorAt(i, onIce ? this.iceColor : this.dirtColor);
+    this.matrixDirty = true;
+    this.colorDirty = true;
+  }
+
+  update(dt: number): void {
+    if (this.activeCount === 0 && !this.matrixDirty) return;
+    for (let i = 0; i < this.life.length; i++) {
+      if (this.life[i] <= 0) continue;
+      this.life[i] -= dt;
+      if (this.life[i] <= 0) {
+        this.life[i] = 0;
+        this.alphas[i] = 0;
+        this.activeCount = Math.max(0, this.activeCount - 1);
+      } else {
+        const frac = this.life[i] / this.maxLife;
+        this.alphas[i] = 0.32 * frac;
+      }
+    }
+    this.alphaAttr.needsUpdate = true;
+    if (this.matrixDirty) {
+      this.mesh.instanceMatrix.needsUpdate = true;
+      this.matrixDirty = false;
+    }
+    if (this.colorDirty && this.mesh.instanceColor) {
+      this.mesh.instanceColor.needsUpdate = true;
+      this.colorDirty = false;
+    }
+  }
+
+  dispose(): void {
+    this.mesh.removeFromParent();
+    this.mesh.geometry.dispose();
+    (this.mesh.material as THREE.Material).dispose();
+  }
+}
+
 export class Effects {
   readonly group = new THREE.Group();
   private sparks: ParticleField;
   private smoke: ParticleField;
   private fire: ParticleField;
   private debris: DebrisSystem;
+  private treads: TreadSystem;
   private rings: RingSlot[] = [];
   private decals: THREE.Mesh[] = [];
   private decalIndex = 0;
@@ -345,6 +492,8 @@ export class Effects {
     this.group.add(this.sparks.points, this.smoke.points, this.fire.points);
     this.debris = new DebrisSystem(lowQuality ? 140 : 260);
     this.group.add(this.debris.mesh);
+    this.treads = new TreadSystem(lowQuality ? 100 : 180);
+    this.group.add(this.treads.mesh);
 
     const ringGeo = new THREE.RingGeometry(0.82, 1, 56);
     for (let i = 0; i < 10; i++) {
@@ -697,6 +846,10 @@ export class Effects {
     }
   }
 
+  tread(x: number, z: number, dir: Dir, onIce = false): void {
+    this.treads.spawn(x, z, dir, onIce);
+  }
+
   scorch(x: number, z: number, scale: number): void {
     const mesh = this.decals[this.decalIndex];
     this.decalIndex = (this.decalIndex + 1) % this.decals.length;
@@ -738,6 +891,7 @@ export class Effects {
     this.smoke.update(dt);
     this.fire.update(dt);
     this.debris.update(dt);
+    this.treads.update(dt);
     this.shakeAmount = Math.max(0, this.shakeAmount - dt * 2.2);
     this.shakeTime += dt;
 
@@ -775,6 +929,7 @@ export class Effects {
     this.smoke.dispose();
     this.fire.dispose();
     this.debris.dispose();
+    this.treads.dispose();
     for (const ring of this.rings) {
       ring.mesh.removeFromParent();
       ring.material.dispose();

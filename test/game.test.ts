@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { ENEMIES_PER_STAGE, GRID, PLAYER_SPAWNS, TANK_HALF } from '../src/core/constants';
+import {
+  COMBO_WINDOW,
+  ENEMIES_PER_STAGE,
+  GRID,
+  PLAYER_RELOAD,
+  PLAYER_RELOAD_STAR3,
+  PLAYER_SPAWNS,
+  TANK_HALF,
+} from '../src/core/constants';
 import { Game } from '../src/core/game';
 import { getStageMap, validateMap } from '../src/core/levels';
 import { quadrantsForDir, Terrain, tankCollides } from '../src/core/terrain';
@@ -325,5 +333,101 @@ describe('gameplay', () => {
       }
     }
     expect(broken.size).toBeGreaterThan(0);
+  });
+
+  it('awards kill-chain combo bonuses for rapid consecutive kills and expires after window', () => {
+    const game = new Game(42);
+    play(game);
+    game.drainEvents();
+    const makeEnemy = (id: string) => ({
+      id,
+      team: 'enemy' as const,
+      kind: 'basic' as const,
+      x: 5.5,
+      z: 5.5,
+      dir: 2 as const,
+      velX: 0,
+      velZ: 0,
+      speed: 1.5,
+      hp: 1,
+      maxHp: 1,
+      cooldown: 0,
+      star: 0,
+      shield: 0,
+      spawn: 0,
+      hitFlash: 0,
+      bonus: false,
+      aiTimer: 1,
+      aiStrafe: 0,
+      stuckTime: 0,
+      playerIndex: -1,
+      alive: true,
+      moving: 0,
+      recoil: 0,
+      iceX: 0,
+      iceZ: 0,
+    });
+
+    const e1 = makeEnemy('e-c1');
+    const e2 = makeEnemy('e-c2');
+    const e3 = makeEnemy('e-c3');
+    game.tanks.push(e1, e2, e3);
+
+    (game as any).destroyEnemy(e1, 0, false);
+    expect(game.score[0]).toBe(100);
+    expect(game.comboCount[0]).toBe(1);
+
+    (game as any).destroyEnemy(e2, 0, false);
+    // Second kill: +100 base + 100 combo bonus = +200
+    expect(game.score[0]).toBe(300);
+    expect(game.comboCount[0]).toBe(2);
+    const comboEvents = game.drainEvents().filter((e) => e.type === 'combo');
+    expect(comboEvents).toHaveLength(1);
+
+    // Let combo window expire
+    for (let i = 0; i < Math.ceil((COMBO_WINDOW + 0.2) * 60); i++) {
+      game.update(1 / 60);
+    }
+    expect(game.comboCount[0]).toBe(0);
+    (game as any).destroyEnemy(e3, 0, false);
+    expect(game.score[0]).toBe(400);
+  });
+
+  it('replaces an uncollected powerup and nudges drops off solid tiles', () => {
+    const game = new Game(55);
+    play(game);
+    game.powerup = { kind: 'star', x: 1.5, z: 1.5, life: 5, age: 1 };
+    game.terrain.set(4, 4, 'water');
+    (game as any).dropPowerup(4.5, 4.5);
+    expect(game.powerup).not.toBeNull();
+    const cellX = Math.floor(game.powerup!.x);
+    const cellZ = Math.floor(game.powerup!.z);
+    expect(game.terrain.solidForTank(cellX, cellZ)).toBe(false);
+  });
+
+  it('starts at a selected stage via setStartStage or start parameter', () => {
+    const game = new Game(10);
+    game.setStartStage(7);
+    expect(game.selectedStage).toBe(7);
+    game.start(1);
+    expect(game.stage).toBe(7);
+
+    game.start(1, 12);
+    expect(game.stage).toBe(12);
+  });
+
+  it('uses faster reload at star level 3', () => {
+    const game = new Game(15);
+    play(game);
+    const p = game.playerTanks()[0];
+    p.cooldown = 0;
+    p.star = 0;
+    (game as any).tryFire(p);
+    expect(p.cooldown).toBeCloseTo(PLAYER_RELOAD, 4);
+
+    p.cooldown = 0;
+    p.star = 3;
+    (game as any).tryFire(p);
+    expect(p.cooldown).toBeCloseTo(PLAYER_RELOAD_STAR3, 4);
   });
 });
